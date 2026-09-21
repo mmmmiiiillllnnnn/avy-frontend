@@ -176,6 +176,9 @@ export type PendingPermission = {
   interruptId: string | null;
   tool: string;
   args: Record<string, unknown>;
+  /** Готовый текст карточки от бэкенда (HITL собирает его из описания тулы).
+   *  Пусто — покажем имя тулы и её аргументы. */
+  description: string;
 };
 
 export type ThreadState = {

@@ -4,6 +4,8 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { AIChatInput } from "@/components/ui/ai-chat-input";
 import { QuestionCard, type PendingQuestions } from "@/components/chat/question-card";
+import { PermissionCard } from "@/components/chat/permission-card";
+import type { PendingPermission } from "@/lib/chat-streams";
 import type { AskUserAnswer } from "@/lib/api";
 import { useAttachments, type UploadedAttachment } from "@/hooks/use-attachments";
 import {
@@ -112,6 +114,10 @@ type ChatProps = {
   onQuestionsSubmit?: (answers: AskUserAnswer[]) => void;
   /** Esc на карточке — снять её и остановить ход (граф уже на паузе в чекпойнте). */
   onQuestionsDismiss?: () => void;
+  /** Очередь подтверждений необратимых действий (`confirm:` в AGENT.md агента).
+   *  Ход на паузе, карточка над полем ввода — как у вопроса. */
+  pendingPermissions?: PendingPermission[];
+  onPermissionDecision?: (decision: "approve" | "reject", comment?: string) => void;
   limitExhausted?: boolean;
   /** Дата сброса лимита (ISO) — для текста плашки. */
   limitResetAt?: string | null;
@@ -153,12 +159,21 @@ export function Chat({
   pendingQuestions,
   onQuestionsSubmit,
   onQuestionsDismiss,
+  pendingPermissions,
+  onPermissionDecision,
 }: ChatProps) {
   const t = useT();
   const { locale } = useLocale();
   const isEmpty = messages.length === 0;
   // Агент ждёт ответа на карточку: она показана вместо поля ввода.
-  const asking = Boolean(pendingQuestions && onQuestionsSubmit);
+  //
+  // Подтверждение и вопрос обрабатываются одинаково: в обоих случаях ход стоит
+  // в interrupt, и отвечать надо карточкой. Свободный текст для отказа есть в
+  // самой карточке, поэтому поле ввода не нужно.
+  const confirming = Boolean(
+    pendingPermissions && pendingPermissions.length > 0 && onPermissionDecision,
+  );
+  const asking = Boolean(pendingQuestions && onQuestionsSubmit) || confirming;
   // Вложения композера держит чат (а не инпут): тогда drag&drop ловится по всей
   // области чата (#chat-area), а не только по капсуле инпута. Файлы грузятся в
   // песочницу СРАЗУ при прикреплении (кольцо прогресса на чипе, Send ждёт).
@@ -369,7 +384,17 @@ export function Chat({
             --input-h (отступ ленты снизу), и её появление дёргало ленту, а
             motion layout эту смену высоты ещё и анимировал — инпут «уезжал»
             вниз, как в пустой сессии. Снаружи высота обёртки не меняется. */}
-        {asking && (
+        {confirming && (
+          <div ref={inputWrapRef} className="pointer-events-auto mx-auto w-full max-w-3xl">
+            <PermissionCard
+              pending={pendingPermissions![0]}
+              queueSize={pendingPermissions!.length}
+              onDecide={onPermissionDecision!}
+            />
+          </div>
+        )}
+
+        {asking && !confirming && (
           // ТОТ ЖЕ ref, что у капсулы: карточка и поле ввода — взаимоисключающие
           // узлы, в DOM ровно один из них, и --input-h считается по тому, что
           // смонтировано. Так лента резервирует место и под карточку, не

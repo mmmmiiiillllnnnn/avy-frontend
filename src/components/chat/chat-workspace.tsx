@@ -690,6 +690,10 @@ export function ChatWorkspace({
                 }}
                 limitExhausted={usage?.exhausted ?? false}
                 limitResetAt={usage?.reset_at ?? null}
+                // Подтверждение необратимого действия (`confirm:` в AGENT.md
+                // агента): ход на паузе, карточка вместо поля ввода.
+                pendingPermissions={chat.pendingPermissions}
+                onPermissionDecision={chat.resolvePermission}
                 pendingQuestions={chat.pendingQuestions}
                 onQuestionsSubmit={chat.answerQuestions}
                 // Отказ отвечать — это ПУСТОЙ ответ, а не остановка хода:

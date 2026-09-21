@@ -59,13 +59,19 @@ export type StoreDeps = {
 export function handlePermissionRequest(
   deps: StoreDeps,
   threadId: string,
-  ev: { interrupt_id?: string; tool: string; args: Record<string, unknown> },
+  ev: {
+    interrupt_id?: string;
+    tool: string;
+    args: Record<string, unknown>;
+    description?: string;
+  },
 ): void {
   const r = deps.rec(threadId);
   const next: PendingPermission = {
     interruptId: ev.interrupt_id ?? null,
     tool: ev.tool,
     args: ev.args,
+    description: ev.description ?? "",
   };
   deps.setState(threadId, {
     pendingPermissions: [...r.state.pendingPermissions, next],

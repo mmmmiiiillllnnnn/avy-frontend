@@ -236,6 +236,10 @@ export type ChatEvent =
       interrupt_id: string | null;
       tool: string;
       args: Record<string, unknown>;
+      /** Готовый текст карточки: его собирает тула, объявившая подтверждение
+       *  (см. confirm: в AGENT.md). Фронт его только показывает и потому не
+       *  знает ничего о конкретных тулах. */
+      description: string;
     }
   | {
       // Режим Avy Code: агент вызвал ask_user — уточняющий вопрос с вариантами

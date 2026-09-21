@@ -351,6 +351,9 @@ export function useChat(opts: UseChatOptions = {}) {
     hasMore,
     setHistory,
     pendingPermission,
+    // Вся очередь: карточка показывает «1 из N», когда агент запросил несколько
+    // подтверждений за один ход.
+    pendingPermissions,
     pendingQueueSize: pendingPermissions.length,
     resolvePermission,
     pendingQuestions,
