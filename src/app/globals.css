@@ -1,0 +1,538 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+/* Появление слов при стриминге. Плагин `animated` вешает на каждое слово
+   [data-sd-animate] и переменные --sd-animation/--sd-duration/--sd-easing/
+   --sd-delay, но САМИ keyframes лежат в streamdown/styles.css. Через
+   `@import "streamdown/styles.css"` они до сборки НЕ доезжают (проверено: в
+   отдаваемом css 0 вхождений sd-blurIn), поэтому держим их здесь. */
+@keyframes sd-fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes sd-blurIn {
+  from { opacity: 0; filter: blur(4px); }
+  to { opacity: 1; filter: blur(0); }
+}
+@keyframes sd-slideUp {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+[data-sd-animate] {
+  animation: var(--sd-animation, sd-fadeIn) var(--sd-duration, 150ms)
+    var(--sd-easing, ease) var(--sd-delay, 0ms) both;
+}
+
+/* Streamdown ships pre-built JSX in node_modules, which Tailwind v4 doesn't scan
+   by default. Without these @source lines Tailwind never generates the utility
+   classes Streamdown relies on (e.g. `text-[var(--sdm-c)]` /
+   `dark:text-[var(--shiki-dark)]` for Shiki code highlighting), so code blocks
+   render colorless. Required per Streamdown's setup docs; one line per installed
+   plugin. (globals.css is at web/src/app → ../../node_modules.) */
+@source "../../node_modules/streamdown/dist/*.js";
+@source "../../node_modules/@streamdown/code/dist/*.js";
+@source "../../node_modules/@streamdown/cjk/dist/*.js";
+@source "../../node_modules/@streamdown/math/dist/*.js";
+@source "../../node_modules/@streamdown/mermaid/dist/*.js";
+
+/* Class-based dark mode: the `dark:` variant matches the `.dark` element ITSELF
+   and any descendant. The previous `&:is(.dark *)` only matched descendants (not
+   the element) and raised specificity, so `dark:` utilities silently didn't apply
+   — e.g. Streamdown's Shiki code highlighting (which sets colors via a
+   `dark:text-[var(--shiki-dark)]` class) rendered colorless. `:where()` keeps
+   specificity at zero so it composes cleanly. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-bg: var(--brand-bg);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* avy-chat палитра: тёмно-синяя база + оранжевый бренд-акцент (warm).
+   Две схемы: тёмная (дефолтная база) и светлая (.light). Переключение —
+   через next-themes (см. providers.tsx), дефолт — системная.
+
+   :root задаёт ТЁМНУЮ как SSR-базу: до того как next-themes на клиенте
+   проставит класс, страница уже окрашена тёмной (исторически тут всегда было
+   темно). .dark дублирует те же значения (для явного выбора тёмной), .light —
+   светлый warm-вариант. */
+:root,
+.dark {
+  /* «МЕДНЫЙ МОНОХРОМ» (эксперимент, схема 11 из подбора): нейтрали — чистые
+     серые без подтона, единственный цвет — медь. Прежняя сине-графитовая
+     тёмная лежит в истории git (фон #1c2433, акцент #e05d38). */
+  --background: #121212;
+  --foreground: #ececec;
+  --card: #1b1b1b;
+  --card-foreground: #ececec;
+  --popover: #202020;
+  --popover-foreground: #ececec;
+  /* Медь. Текст на ней ТЁМНЫЙ: акцент светлый (l≈62%), белый на нём мылится. */
+  --primary: #c58963;
+  --primary-foreground: #1a100a;
+  --secondary: #232323;
+  --secondary-foreground: #ececec;
+  --muted: #232323;
+  --muted-foreground: #8c8c8c;
+  --accent: #2a2a2a;
+  --accent-foreground: #ececec;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: #2a2a2a;
+  --input: #2a2a2a;
+  --ring: #c58963;
+  --chart-1: #c58963;
+  --chart-2: #a8a8a8;
+  --chart-3: #7a7a7a;
+  --chart-4: #565656;
+  --chart-5: #3b3b3b;
+  --radius: 0.609rem;
+  --sidebar: #1b1b1b;
+  --sidebar-foreground: #ececec;
+  --sidebar-primary: #c58963;
+  --sidebar-primary-foreground: #1a100a;
+  /* Заметно светлее фона сайдбара, чтобы hover/active чётко читались. Плашки
+     сессий подсвечиваются СВОИМ цветом ярче этого токена — см.
+     sidebar-sessions.tsx, глобально токен не трогать (красит весь сайдбар
+     разом). */
+  --sidebar-accent: #2e2e2e;
+  --sidebar-accent-foreground: #ececec;
+  --sidebar-border: #2a2a2a;
+  --sidebar-ring: #c58963;
+
+  /* кастомные бренд-токены */
+  --brand-ink: #ececec;
+  --brand-bg: #121212;
+}
+
+/* Светлая пара «медного монохрома»: та же нейтральная серая шкала (chroma 0),
+   но акцент — ПРЕЖНИЙ насыщенный оранжевый #e05d38, а не медь: медь на белом
+   тусклая в любой глубине (пробовали #b0714a и #a06336). Медь живёт только в
+   тёмной теме. */
+.light {
+  --background: #ffffff;
+  --foreground: #171717;
+  --card: #ffffff;
+  --card-foreground: #171717;
+  --popover: #ffffff;
+  --popover-foreground: #171717;
+  --primary: #e05d38;
+  --primary-foreground: #ffffff;
+  --secondary: #f4f4f4;
+  --secondary-foreground: #2b2b2b;
+  --muted: #f4f4f4;
+  --muted-foreground: #6f6f6f;
+  --accent: #f0f0f0;
+  --accent-foreground: #2b2b2b;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --border: #e3e3e3;
+  --input: #e3e3e3;
+  --ring: #e05d38;
+  --chart-1: #e05d38;
+  --chart-2: #8f8f8f;
+  --chart-3: #707070;
+  --chart-4: #5e5e5e;
+  --chart-5: #444444;
+  --radius: 0.609rem;
+  --sidebar: #f4f4f4;
+  --sidebar-foreground: #171717;
+  --sidebar-primary: #e05d38;
+  --sidebar-primary-foreground: #ffffff;
+  /* Заметно серее фона, чтобы hover/active читались. Плашки сессий
+     подсвечиваются СВОИМ цветом заметнее этого токена — см.
+     sidebar-sessions.tsx, глобально токен не трогать (красит весь сайдбар
+     разом). */
+  --sidebar-accent: #e7e7e7;
+  --sidebar-accent-foreground: #2b2b2b;
+  --sidebar-border: #e3e3e3;
+  --sidebar-ring: #e05d38;
+
+  /* кастомные бренд-токены */
+  --brand-ink: #171717;
+  --brand-bg: #ffffff;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply bg-background font-sans;
+  }
+}
+
+/* Глобальный тонкий скроллбар в стиле VS Code для всего приложения */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+}
+
+*:hover::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+*:hover::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--border) 90%, transparent);
+}
+
+/* Класс .scroll-hover-visible оставляем для явного применения там где нужно */
+
+/* Перенос текста в code blocks Streamdown - убираем горизонтальный скролл */
+[data-streamdown="code-block-body"] {
+  overflow-x: hidden !important;
+  max-width: 100% !important;
+}
+
+[data-streamdown="code-block-body"] pre {
+  white-space: pre-wrap !important;
+  word-wrap: break-word !important;
+  overflow-wrap: break-word !important;
+  max-width: 100% !important;
+  overflow-x: hidden !important;
+}
+
+[data-streamdown="code-block-body"] pre code {
+  white-space: pre-wrap !important;
+  word-wrap: break-word !important;
+  overflow-wrap: break-word !important;
+  display: block !important;
+}
+
+[data-streamdown="code-block-body"] pre code span {
+  white-space: pre-wrap !important;
+  word-wrap: break-word !important;
+}
+.scroll-hover-visible ::-webkit-scrollbar,
+.scroll-hover-visible::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.scroll-hover-visible ::-webkit-scrollbar-track,
+.scroll-hover-visible::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scroll-hover-visible ::-webkit-scrollbar-thumb,
+.scroll-hover-visible::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+}
+
+.scroll-hover-visible:hover ::-webkit-scrollbar-thumb,
+.scroll-hover-visible:hover::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+.scroll-hover-visible:hover ::-webkit-scrollbar-thumb:hover,
+.scroll-hover-visible:hover::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--border) 90%, transparent);
+}
+/* ─── Electron desktop: компенсация высоты кастомного титлбара ───────────────
+   В десктоп-оболочке сверху рендерится свой титлбар (36px, см.
+   ElectronTitlebar). Sidebar и его контент захардкожены на 100svh
+   (h-svh / min-h-svh), не зная про титлбар, из-за чего нижний инпут вылезал
+   за экран, а фиксированный сайдбар уезжал под титлбар. Когда на <html> висит
+   класс .electron — урезаем эти высоты на высоту титлбара. --titlebar-h задаём
+   тут, чтобы значение жило в одном месте. */
+html.electron {
+  --titlebar-h: 36px;
+}
+html.electron .h-svh {
+  height: calc(100svh - var(--titlebar-h));
+}
+html.electron .min-h-svh {
+  min-height: calc(100svh - var(--titlebar-h));
+}
+
+/* Фиксированный сайдбар (data-slot="sidebar-container", fixed inset-y-0 h-svh) —
+   сдвигаем его верх под титлбар, иначе он начинается от самого верха окна и
+   уезжает под него. Таргетим именно sidebar-container, чтобы не задеть другие
+   fixed-элементы (модалки, поповеры). */
+html.electron [data-slot="sidebar-container"] {
+  top: var(--titlebar-h);
+}
+
+/* Нативное перетаскивание окна за титлбар. Окно создаётся с
+   titleBarStyle:"hidden" (apps/desktop/src/main.js), поэтому ОС хит-тестит
+   эту область как настоящую caption-зону: drag с превью Aero Snap, Snap
+   Layouts, работает в т.ч. в fullscreen. Никакого JS-перетаскивания.
+   .titlebar-drag — вся полоса тащит окно; .titlebar-no-drag — интерактивные
+   зоны (кнопки, инпуты) исключаем, чтобы по ним можно было кликать. */
+.titlebar-drag {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+.titlebar-no-drag,
+.titlebar-drag button,
+.titlebar-drag a,
+.titlebar-drag input,
+.titlebar-drag select,
+.titlebar-drag textarea {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* ─── Мобила: документ неподвижен, каркас на 100dvh (клавиатура без скачка) ───
+   Правильный путь (как ChatGPT/Telegram), без «догоняющего» JS:
+   1) viewport interactive-widget=resizes-content (layout.tsx) — при клавиатуре
+      браузер УМЕНЬШАЕТ вьюпорт и 100dvh, а не сдвигает окно скроллом.
+   2) html/body: height:100dvh + overflow:hidden — прокрутки документа нет,
+      поэтому Safari нечего проматывать: нет нативного «улёта» окна → нет скачка.
+      (position:fixed на body НЕ ставим — он ломает поток, контент лезет под
+      хедер; overflow:hidden + фикс высоты достаточно.)
+   3) Каркас на 100dvh: при открытой клавиатуре dvh сам ужимается, инпут
+      (bottom-0 внутри фрейма) садится над клавиатурой, хедер стоит на месте.
+
+   html-префикс — приоритет над Tailwind-утилитами (h-screen/h-svh/min-h-svh).
+   Только мобила (<768px): десктоп на 100svh/h-screen корректен, Electron не
+   мобилен. */
+@media (max-width: 767px) {
+  html,
+  html body {
+    height: 100dvh;
+    overflow: hidden;
+  }
+  html body.h-screen {
+    height: 100dvh;
+  }
+  html [data-slot="sidebar-wrapper"] {
+    min-height: 100dvh;
+    height: 100dvh;
+  }
+  html [data-slot="sidebar-inset"].h-svh {
+    height: 100dvh;
+  }
+  /* Хедер рабочей области — под safe-area, чтобы не лез под «чёлку»/Dynamic
+     Island. Верхний inset паддингом поверх h-16. */
+  [data-slot="sidebar-inset"] header {
+    padding-top: env(safe-area-inset-top);
+  }
+}
+
+/* ── Виджет погоды (components/chat/weather-widget.tsx) ──────────────────────
+   Сцена собрана из размытых слоёв, а не фигур с чётким контуром: облако — пять
+   эллипсов под общим blur, солнце — ядро плюс рассеянный ореол. Осадки идут с
+   разбросом по скорости и прозрачности, это читается как глубина. */
+
+.wx-sun {
+  background: radial-gradient(circle at 50% 50%,
+    #FFFDF5 0%, #FFF4CE 28%, #FFE28A 52%, rgba(255,206,92,.55) 72%, rgba(255,190,70,0) 100%);
+  filter: blur(.4px);
+  animation: wx-breathe 8s ease-in-out infinite;
+}
+.wx-sun-glow {
+  background: radial-gradient(circle at 50% 50%,
+    rgba(255,235,170,.42) 0%, rgba(255,220,140,.20) 38%, rgba(255,210,120,0) 70%);
+  filter: blur(6px);
+  animation: wx-breathe 8s ease-in-out infinite reverse;
+}
+@keyframes wx-breathe {
+  0%, 100% { transform: scale(1); opacity: .96; }
+  50%      { transform: scale(1.045); opacity: 1; }
+}
+
+/* Луна: свет слева сверху, затенение справа снизу — не ровный диск. */
+.wx-moon {
+  background:
+    radial-gradient(circle at 68% 72%, rgba(150,165,190,.30) 0%, rgba(150,165,190,0) 42%),
+    radial-gradient(circle at 34% 30%, #FEFDF8 0%, #E4E9F2 46%, #BDC7D8 78%, #A6B2C6 100%);
+  filter: blur(.3px);
+}
+.wx-moon-glow {
+  background: radial-gradient(circle at 50% 50%, rgba(210,225,250,.28), rgba(210,225,250,0) 68%);
+  filter: blur(7px);
+}
+
+.wx-cloud { will-change: transform; }
+@keyframes wx-float {
+  from { transform: translate3d(calc(var(--x0) * 1px), 0, 0); }
+  to   { transform: translate3d(calc(var(--x1) * 1px), calc(var(--dy) * 1px), 0); }
+}
+
+.wx-drop {
+  background: linear-gradient(to bottom, rgba(226,240,255,0), rgba(226,240,255,.75));
+  animation: wx-rain linear infinite;
+}
+@keyframes wx-rain {
+  from { transform: translate3d(0, -12%, 0); }
+  to   { transform: translate3d(calc(var(--drift) * 1px), calc(var(--dist) * 1px), 0); }
+}
+
+/* Снег: неправильная траектория (4 точки), а не синусоида — не идут строем. */
+.wx-flake {
+  background: radial-gradient(circle at 40% 35%, #fff, rgba(255,255,255,.72));
+  animation: wx-snow linear infinite;
+}
+@keyframes wx-snow {
+  0%   { transform: translate3d(0, -14%, 0); }
+  25%  { transform: translate3d(calc(var(--drift) * .35px), calc(var(--dist) * .25px), 0); }
+  50%  { transform: translate3d(calc(var(--drift) * -.2px), calc(var(--dist) * .5px), 0); }
+  75%  { transform: translate3d(calc(var(--drift) * .5px), calc(var(--dist) * .75px), 0); }
+  100% { transform: translate3d(calc(var(--drift) * .15px), calc(var(--dist) * 1px), 0); }
+}
+
+/* Молния: свечение вверху неба с двойным разрядом, не белый экран. */
+.wx-bolt {
+  /* Центр вспышки — над правой половиной: слева текст, засветка мешала. */
+  background: radial-gradient(ellipse 55% 40% at 72% 16%,
+    rgba(255,252,235,.92), rgba(200,215,255,.35) 45%, rgba(180,200,255,0) 72%);
+  opacity: 0;
+  animation: wx-strike 7s linear infinite;
+}
+@keyframes wx-strike {
+  0%, 88%, 100% { opacity: 0; }
+  88.5% { opacity: .9; }
+  89.2% { opacity: .12; }
+  89.8% { opacity: .75; }
+  91%   { opacity: 0; }
+}
+
+.wx-fog {
+  /* Правая половина: слева на сцене лежит текст (город, температура, чипы),
+     и полосы тумана поверх него мешали читать. */
+  left: 44%; right: -25%;
+  background: radial-gradient(ellipse 50% 55% at 50% 50%,
+    rgba(255,255,255,.55), rgba(255,255,255,0) 72%);
+  filter: blur(4px);
+  animation: wx-fogdrift ease-in-out infinite alternate;
+}
+@keyframes wx-fogdrift {
+  from { transform: translate3d(-8%, 0, 0); }
+  to   { transform: translate3d(8%, 0, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wx-sun, .wx-sun-glow, .wx-cloud, .wx-drop, .wx-flake, .wx-bolt, .wx-fog {
+    animation: none !important;
+  }
+}
+
+/* --- Заставка загрузки (PWA) ------------------------------------------------
+ *
+ * Перекрывает экран, пока приложение не смонтировалось. Особенно нужна в
+ * standalone-режиме: там нет ни адресной строки, ни индикатора загрузки — без
+ * заставки человек смотрит в пустой экран.
+ *
+ * Фон — прямо цветами темы, а не токенами: заставка живёт ДО гидрации, когда
+ * класс темы на <html> ещё не проставлен, и var(--background) отдал бы не тот
+ * цвет. Тёмный по умолчанию, светлый — по системной настройке.
+ */
+#app-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #121212; /* фон тёмной темы «медного монохрома» */
+  /* Гасим через opacity+visibility, а не display: display не анимируется, и
+     заставка пропадала бы рывком. */
+  transition: opacity 0.35s ease, visibility 0.35s ease;
+}
+
+@media (prefers-color-scheme: light) {
+  #app-splash { background: #ffffff; }
+  /* Светлый вариант лого — бренд-оранжевый, как в components/ui/logo.tsx. */
+  #app-splash svg rect { fill: #e05d38; }
+}
+
+#app-splash svg {
+  width: 88px;
+  height: 88px;
+  animation: app-splash-pulse 1.6s ease-in-out infinite;
+}
+
+/* Дыхание: приближение-отдаление. Небольшое — заставка живёт доли секунды,
+   резкое движение читалось бы как дёрганье. */
+@keyframes app-splash-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.92; }
+  50%      { transform: scale(1.08); opacity: 1; }
+}
+
+/* Приложение смонтировалось (см. app-ready.tsx) — убираем.
+   pointer-events снимаем сразу, чтобы гаснущая заставка не съедала клики. */
+.app-ready #app-splash {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #app-splash svg { animation: none; }
+  #app-splash { transition: none; }
+}
+
+/* ── Сайдбар: полупрозрачная сплошная колонка ────────────────────────────────
+   От «стекла» после пробы осталась только полупрозрачность панели: медные
+   блики-свечения на подложке убраны по просьбе пользователя (пробовали 26%/14%
+   как в макете — отвергнуто). Панель на 55% тона сайдбара поверх фона даёт
+   двухтоновую колонку чуть темнее контента; blur оставлен — без бликов он
+   ничего не стоит и не виден, но сохранит вид, если под сайдбаром окажется
+   контент (оверлеи).
+
+   Скоуп [data-slot="sidebar-container"] — ТОЛЬКО десктопная колонка.
+   Мобильная шторка (SheetContent) лежит ПОВЕРХ живого чата: там blur платил бы
+   за каждый кадр стрима — она остаётся непрозрачной (bg-sidebar). */
+@supports (backdrop-filter: blur(1px)) {
+  [data-slot="sidebar-container"] [data-sidebar="sidebar"] {
+    background: color-mix(in srgb, var(--sidebar) 55%, transparent);
+    -webkit-backdrop-filter: blur(18px) saturate(1.2);
+    backdrop-filter: blur(18px) saturate(1.2);
+  }
+}

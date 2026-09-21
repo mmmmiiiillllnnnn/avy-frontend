@@ -1,0 +1,25 @@
+# Контекст сборки фронта (web/Dockerfile, context: ./web). Без этого COPY . .
+# затащил бы node_modules/.next/секреты — раздув образа и риск утечки.
+
+# Зависимости и артефакты сборки — ставятся/собираются внутри образа.
+node_modules/
+.next/
+out/
+build/
+dist/
+
+# Секреты и локальное окружение.
+.env
+.env.*
+!.env.example
+
+# VCS и IDE.
+.git/
+.gitignore
+.idea/
+.vscode/
+
+# Прочее.
+*.log
+.DS_Store
+npm-debug.log*
