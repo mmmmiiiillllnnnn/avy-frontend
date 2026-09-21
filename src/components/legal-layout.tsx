@@ -23,7 +23,7 @@ export function LegalLayout({
     <div className="mx-auto min-h-[100dvh] max-w-2xl px-6 py-12">
       <div className="mb-8 flex items-center justify-between">
         <Link
-          href="/login"
+          href="/"
           className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
         >
           <ArrowLeft className="size-4" />

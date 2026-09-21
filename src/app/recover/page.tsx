@@ -90,7 +90,7 @@ function RecoverInner() {
 
         <p className="mt-6 text-center text-sm">
           <Link
-            href="/login"
+            href="/"
             className="font-medium text-primary hover:underline"
           >
             {t.recover.backToLogin}
