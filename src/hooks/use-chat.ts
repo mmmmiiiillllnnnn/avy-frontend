@@ -184,12 +184,9 @@ export function useChat(opts: UseChatOptions = {}) {
       const trimmed = text.trim();
       if (!threadId) return;
       if (!trimmed && items.length === 0) return;
-      // Ход идёт. В обычном чате сообщение уходит агенту НА ХОДУ — он получит
-      // его перед следующим вызовом модели (chatStreams.interject). В Avy Code
-      // по-прежнему ждём конца хода: там ход стоит на approval-паузах, и
-      // реплика посреди них не определена.
+      // Ход идёт: сообщение уходит агенту НА ХОДУ — он получит его перед
+      // следующим вызовом модели (chatStreams.interject).
       const midTurn = chatStreams.isStreaming(threadId);
-      if (midTurn && opts.mode === "avy-code") return;
 
       // Разделяем два вида вложений (см. выше). File[] грузим; UploadedAttachment[]
       // уже загружены — используем как есть.
@@ -227,12 +224,10 @@ export function useChat(opts: UseChatOptions = {}) {
         }));
       }
 
-      // Обычный чат: дописываем блок путей файлов (/uploads/...) — агент читает
-      // их через read_file по пути. Avy Code: НЕ дописываем — содержимое
-      // вложений сервер инжектит прямо в сообщение (текст PDF/файла, base64-
-      // картинка), как Claude Code; пути там фиктивные (имя файла, не в ФС).
+      // Дописываем блок путей файлов (/uploads/...) — агент читает их через
+      // read_file по пути.
       const sendMessage =
-        uploaded.length && opts.mode !== "avy-code"
+        uploaded.length
           ? `${trimmed}${trimmed ? "\n\n" : ""}Прикреплённые файлы:\n${uploaded
               .map((f) => `- ${f.path}`)
               .join("\n")}`

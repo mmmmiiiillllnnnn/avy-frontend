@@ -3,7 +3,6 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 import { AppReady } from "./app-ready";
-import { ElectronTitlebar } from "@/components/electron-titlebar";
 import { InstallPrompt } from "@/components/install-prompt";
 
 // Основной шрифт интерфейса.
@@ -103,7 +102,6 @@ export default function RootLayout({
           </svg>
         </div>
         <AppReady />
-        <ElectronTitlebar />
         <div className="flex-1 min-h-0 isolate">
           {/* InstallPrompt внутри Providers — ему нужен словарь (useT). */}
           <Providers>

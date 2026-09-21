@@ -246,15 +246,6 @@ export type ChatEvent =
       interrupt_id: string | null;
       questions: AskUserQuestionSpec[];
     }
-  | {
-      // Режим Avy Code: фоновый процесс (bash run_in_background) — для панели
-      // фоновых задач. kind:upsert — добавить/обновить строку задачи; removed —
-      // убрать (юзер удалил из истории). task — полный durable-снимок (тот же
-      // shape, что отдаёт listBackground). См. BgTask в lib/chat-streams.ts.
-      type: "bg_task";
-      kind: "upsert" | "removed";
-      task: import("@/lib/code/code-chat-streams").BgTask;
-    }
   | { type: "stopped" }
   // /attach: offset клиента — из прежнего хода. Сервер поднял новый ход без
   // клиента (доставка репорта фонового агента), нумерация кадров началась с
@@ -1553,11 +1544,7 @@ export async function uploadSessionFiles(
 ): Promise<UploadResult> {
   const form = new FormData();
   for (const f of files) form.append("files", f, f.name);
-  // Avy Code: отдельный endpoint (инжект в сообщение, без записи в ФС).
-  // Обычный чат: общий endpoint с mode-параметром для выбора песочницы.
-  const url = mode === "avy-code"
-    ? `${API_BASE}/api/code/upload/${encodeURIComponent(threadId)}`
-    : `${API_BASE}/api/threads/${encodeURIComponent(threadId)}/files/upload${mode ? `?mode=${encodeURIComponent(mode)}` : ""}`;
+  const url = `${API_BASE}/api/threads/${encodeURIComponent(threadId)}/files/upload${mode ? `?mode=${encodeURIComponent(mode)}` : ""}`;
   const res = await fetch(
     url,
     { method: "POST", credentials: CREDENTIALS, body: form },

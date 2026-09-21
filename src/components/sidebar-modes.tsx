@@ -5,13 +5,11 @@ import { motion, AnimatePresence, MotionConfig } from "motion/react";
 import {
   Check,
   Bot,
-  Code2,
   type LucideIcon,
 } from "lucide-react";
 import { Logo } from "@/components/ui/logo";
 import { cn } from "@/lib/utils";
 import { useT } from "@/i18n/i18n-context";
-import { useIsDesktop } from "@/hooks/use-is-desktop";
 import type { Dictionary } from "@/i18n/dictionary";
 
 export type Mode = {
@@ -27,24 +25,13 @@ export type Mode = {
 
 // Режимы приложения. От выбранного режима зависит наполнение тела сайдбара
 // (см. AppSidebar) И режим агента (см. ChatWorkspace -> useChat.mode).
-// avy-code — кодинг-режим: работа с локальными файлами через avy-host.
 export const MODES: Mode[] = [
   { id: "ai-assistant", labelKey: "modeAssistant", descKey: "modeAssistantDesc", icon: Bot },
-  { id: "avy-code", labelKey: "modeCode", descKey: "modeCodeDesc", icon: Code2 },
   // «Студия контента» временно убрана из списка. Показывать режим, которого
   // ещё нет, имеет смысл, когда он на подходе; пока он просто занимал строку
   // с подписью «скоро». Записи словаря (modeStudio/modeStudioDesc) и иконка
   // Clapperboard оставлены — вернуть её значит раскомментировать запись.
 ];
-
-// Режимы, работающие только в десктоп-оболочке (через локальный avy-host,
-// которого в браузере нет).
-//
-// РАНЬШЕ мы их просто ПРЯТАЛИ в web. Это скрывало от пользователя, что такой
-// режим вообще существует: человек не знал, что стоит поставить приложение.
-// Теперь показываем всегда, но в браузере блокируем с подписью «только в
-// приложении» — отказ объяснённый, а не пустое место.
-const DESKTOP_ONLY_MODES = new Set(["avy-code"]);
 
 /**
  * Главный селектор режимов (вверху сайдбара). Триггер — название текущего
@@ -63,23 +50,17 @@ export function SidebarModes({
   const [open, setOpen] = React.useState(false);
   const rootRef = React.useRef<HTMLDivElement>(null);
   const t = useT();
-  const isDesktop = useIsDesktop();
 
-  // Показываем ВСЕ режимы, недоступные — выключенными с объяснением. Причины
-  // две и они разные: режим ещё не сделан (soon) либо требует десктоп-оболочки
-  // (в браузере нет avy-host). На сервере/первом рендере isDesktop=false —
-  // до гидрации avy-code будет выглядеть заблокированным, это безопаснее
-  // обратного (мелькнуть доступным и отключиться).
+  // Показываем ВСЕ режимы, недоступные (ещё не сделанные) — выключенными с
+  // объяснением, а не пустым местом.
   const modes = React.useMemo(
     () =>
       MODES.map((m) => ({
         ...m,
-        locked: m.soon || (!isDesktop && DESKTOP_ONLY_MODES.has(m.id)),
-        // Подпись отличается: «скоро» — про нас, «только в приложении» — про
-        // то, что пользователь может сделать сам.
-        lockNote: m.soon ? t.sidebar.soon : t.sidebar.desktopOnly,
+        locked: !!m.soon,
+        lockNote: t.sidebar.soon,
       })),
-    [isDesktop, t],
+    [t],
   );
 
   React.useEffect(() => {
@@ -97,10 +78,8 @@ export function SidebarModes({
     };
   }, [open]);
 
-  // Выбранный режим мог стать недоступным: avy-code остался в стейте с десктопа,
-  // а открыли в браузере. Раньше от этого спасала фильтрация списка — теперь
-  // режим показывается всегда, поэтому возвращаем на дефолтный явно, иначе
-  // человек застрянет в неработающем режиме.
+  // Выбранный режим мог стать недоступным — возвращаем на дефолтный явно,
+  // иначе человек застрянет в неработающем режиме.
   const active = modes.find((m) => m.id === value);
   React.useEffect(() => {
     if (active?.locked) onChange(MODES[0].id);

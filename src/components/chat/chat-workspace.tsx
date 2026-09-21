@@ -2,13 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EffortLevel, ChatModelId } from "@/components/ui/ai-chat-input";
-import type { PermissionMode, ModelId } from "@/components/code/chat-code-input";
 import { Files, SlidersHorizontal, SquarePen, ListChecks, ArrowLeft } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Chat } from "@/components/chat/chat";
-import { ChatCode } from "@/components/code/chat-code";
-import { AgentConfigDialog } from "@/components/code/agent-config-dialog";
 import { SessionTitleMenu } from "@/components/chat/session-title-menu";
 import { HeaderAction } from "@/components/chat/header-action";
 import { HeaderBrand } from "@/components/chat/header-brand";
@@ -29,7 +26,6 @@ import {
   sizeIndex,
   type FileChipApi,
 } from "@/components/chat/file-chip-context";
-import { FileEditor } from "@/components/code/file-editor";
 import type { SessionsApi } from "@/hooks/use-threads";
 import { useChat } from "@/hooks/use-chat";
 import { useFiles } from "@/hooks/use-files";
@@ -141,18 +137,7 @@ export function ChatWorkspace({
   // чату, в котором его сделали, — в соседнем чате снова дефолт. Раньше жил на
   // уровне рабочей области и переезжал между тредами — переиграно.
   const [agentId, setAgentId] = useState<string | null>(null);
-  const [permissionMode, setPermissionMode] = useState<PermissionMode>("ask");
-  const [model, setModel] = useState<ModelId>("qwen3.7-plus");
-  // Модель ОБЫЧНОГО чата — отдельным стейтом от кодерской выше, а не общим.
-  // Наборы не совпадают: у кодера есть kimi-k3, kimi-k2.7-code и
-  // qwen3.5-397b, которых нет у чата. С одним стейтом переключение раздела
-  // оставляло бы выбранной модель, которой в этом разделе не существует.
   const [chatModel, setChatModel] = useState<ChatModelId>("qwen3.7-plus");
-  const isCode = mode === "avy-code";
-  // Режим больше НЕ выводится из кнопки «Глубокое исследование» — она убрана.
-  // Исследователь стал агентом библиотеки, и его deep-research приходит из
-  // config агента на бэкенде. Здесь остаётся только кодер: у него свой контур.
-  const agentMode = isCode ? "avy-code" : undefined;
   // Панель показывает единый список файлов сессии (результаты агента + загрузки);
   // рабочая директория агента (/work) больше не отображается.
   const files = useFiles(activeId, filesOpen, "outputs");
@@ -247,7 +232,7 @@ export function ChatWorkspace({
   // reloadHistory объявлен ниже (нужен chat), но useContextUsage требует колбэк
   // сейчас → зовём через ref, чтобы не завязываться на порядок объявления.
   const reloadHistoryRef = useRef<() => void>(() => {});
-  const context = useContextUsage(activeId, mode, () => reloadHistoryRef.current());
+  const context = useContextUsage(activeId, () => reloadHistoryRef.current());
   const { usage, refresh: refreshUsage } = useUsage();
 
   // API для плашек файлов в сообщениях (FileChip). openInPanel открывает панель и
@@ -270,16 +255,9 @@ export function ChatWorkspace({
 
   const chat = useChat({
     threadId: activeId,
-    // Модель берём по разделу: у кодера и чата свои наборы и свои стейты
-    // (см. объявление chatModel). До появления селектора в чате сюда всегда
-    // уходила кодерская — в обычном разговоре это было незаметно, потому что
-    // менять её было нечем.
-    modelId: isCode ? model : chatModel,
+    modelId: chatModel,
     effort,
-    mode: agentMode,
-    // Агент из библиотеки — только в обычном чате: у кодера свой контур.
-    agentId: isCode ? undefined : agentId,
-    permissionMode: isCode ? permissionMode : undefined,
+    agentId,
     // Сессия попадает в сайдбар СРАЗУ при отправке первого сообщения, а не по
     // завершении хода. Раньше её показывал только onDone/onTitle — и пока агент
     // работал (а с задачами и картинками ход идёт минутами), сессии в списке не
@@ -552,45 +530,24 @@ export function ChatWorkspace({
                   }}
                 />
               )}
-              {/* «Новый чат» — только в Avy Code: в режиме ассистента кнопка есть
-                  в сайдбаре, в avy-code сайдбар занят проводником. */}
-              {isCode && (
-                <HeaderAction icon={SquarePen} label="Новый чат" onClick={handleNew} />
-              )}
-              {/* «Конфигурация агента» — только в Avy Code. */}
-              {isCode && (
-                <HeaderAction
-                  icon={SlidersHorizontal}
-                  label="Конфигурация агента"
-                  onClick={() => setConfigOpen(true)}
-                  disabled={!activeId}
-                  active={configOpen}
-                />
-              )}
-              {/* «Файлы сессии» — только в чат-режиме. */}
-              {!isCode && (
-                <HeaderAction
-                  icon={Files}
-                  label="Файлы сессии"
-                  onClick={toggleFiles}
-                  disabled={!activeId}
-                  active={filesOpen}
-                />
-              )}
-              {/* «Настройки сессии» — только в чат-режиме: память этого чата и
-                  список того, что уже запомнено. */}
-              {!isCode && (
-                <HeaderAction
-                  icon={SlidersHorizontal}
-                  label={t.chat.sessionSettings}
-                  onClick={toggleSessionSettings}
-                  disabled={!activeId}
-                  active={sessionSettingsOpen}
-                />
-              )}
-              {/* «Субагенты» — только в чат-режиме и только если они есть.
-                  Иконка шиммерит оранжевым, пока хоть один субагент работает. */}
-              {!isCode && subagents.length > 0 && (
+              <HeaderAction
+                icon={Files}
+                label="Файлы сессии"
+                onClick={toggleFiles}
+                disabled={!activeId}
+                active={filesOpen}
+              />
+              {/* «Настройки сессии»: память этого чата и список запомненного. */}
+              <HeaderAction
+                icon={SlidersHorizontal}
+                label={t.chat.sessionSettings}
+                onClick={toggleSessionSettings}
+                disabled={!activeId}
+                active={sessionSettingsOpen}
+              />
+              {/* «Субагенты» — только если они есть. Иконка шиммерит оранжевым,
+                  пока хоть один субагент работает. */}
+              {subagents.length > 0 && (
                 <HeaderAction
                   icon={BotIcon}
                   label={t.chat.subagents}
@@ -686,34 +643,7 @@ export function ChatWorkspace({
           />
         ) : (
         <div className="relative flex min-h-0 flex-1 flex-col">
-          {isCode ? (
-            <ChatCode
-              messages={chat.messages}
-              isStreaming={chat.isStreaming}
-              error={chat.error}
-              onSend={chat.send}
-              onStop={chat.stop}
-              contextUsage={context.usage}
-              compacting={context.compacting}
-              onCompact={context.compact}
-              onCancelCompact={context.cancelCompact}
-              threadId={activeId}
-              effort={effort}
-              onEffortChange={setEffort}
-              permissionMode={permissionMode}
-              onPermissionModeChange={setPermissionMode}
-              model={model}
-              onModelChange={setModel}
-              pendingPermission={chat.pendingPermission}
-              onPermissionDecision={chat.resolvePermission}
-              permissionBusy={chat.isStreaming}
-              pendingQueueSize={chat.pendingQueueSize}
-              onOpenFile={onOpenFile}
-              onLoadMore={chat.loadMore}
-              hasMore={chat.hasMore}
-            />
-          ) : (
-            <FileChipProvider value={fileChipApi}>
+          <FileChipProvider value={fileChipApi}>
               {/* key: НОВЫЙ инстанс чата на каждую сессию — недописанный текст
                   и черновик вложений принадлежат своему чату и в соседний не
                   переносятся (как FilesPanel, пересоздаваемая по key). */}
@@ -768,53 +698,33 @@ export function ChatWorkspace({
                 // tools/ask_user.py) — агент продолжит и спросит словами.
                 onQuestionsDismiss={() => chat.answerQuestions([])}
               />
-            </FileChipProvider>
-          )}
-          {isCode && openedFile && (
-            <FileEditor
-              path={openedFile}
-              searchText={searchText}
-              highlightLines={highlightLines}
-              onClose={() => onCloseFile?.()}
-              onSave={onFileSaved}
-            />
-          )}
+          </FileChipProvider>
         </div>
         )}
       </div>
-      {/* Окно «Конфигурация агента» (только Avy Code): обзор + подключение MCP. */}
-      {isCode && (
-        <AgentConfigDialog
-          open={configOpen}
-          onClose={() => setConfigOpen(false)}
-          threadId={activeId}
-        />
-      )}
-      {/* Панель «Файлы сессии» — только чат-режим (см. кнопку выше).
+      {/* Панель «Файлы сессии».
           key={activeId}: при смене сессии React ПЕРЕСОЗДАЁт панель, сбрасывая её
           внутреннее состояние (выбранный файл, зум, скролл). Без этого панель
           на кадр рисовала бы предпросмотр файла прошлой сессии с уже новым
           threadId → 404 в PdfViewer. Идиома «другая сущность → новый key». */}
-      {!isCode && (
-        <FilesPanel
-          key={activeId}
-          open={filesOpen}
-          threadId={activeId}
-          files={files.files}
-          loading={files.loading}
-          onRefresh={files.refresh}
-          openRequest={
-            fileOpenRequest?.threadId === activeId ? fileOpenRequest : undefined
-          }
-          onClose={() => setFilesOpen(false)}
-        />
-      )}
+      <FilesPanel
+        key={activeId}
+        open={filesOpen}
+        threadId={activeId}
+        files={files.files}
+        loading={files.loading}
+        onRefresh={files.refresh}
+        openRequest={
+          fileOpenRequest?.threadId === activeId ? fileOpenRequest : undefined
+        }
+        onClose={() => setFilesOpen(false)}
+      />
       {/* Панель «Настройки сессии» — сосед колонки, как FilesPanel.
           Пересоздаём при смене сессии, чтобы состояние (тумблер памяти, список
           фактов) перечитывалось, а не оставалось от прошлого чата. Ключ с
           ПРЕФИКСОМ: FilesPanel — сосед по тому же родителю и берёт key={activeId},
           и один голый activeId на двоих дал бы двух детей с одинаковым ключом. */}
-      {!isCode && activeId && (
+      {activeId && (
         <SessionSettingsPanel
           key={`session-settings:${activeId}`}
           open={sessionSettingsOpen}
@@ -823,8 +733,8 @@ export function ChatWorkspace({
         />
       )}
       {/* Панель субагентов — сосед колонки (сдвигает чат влево), как FilesPanel.
-          Открыта только в чат-режиме по кнопке; взаимоисключается с файлами. */}
-      {!isCode && subagentsOpen && (
+          Открывается по кнопке; взаимоисключается с файлами. */}
+      {subagentsOpen && (
         <SubagentsPanel
           entries={subagents}
           threadId={activeId}

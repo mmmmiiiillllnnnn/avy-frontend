@@ -9,7 +9,6 @@ import {
   setThreadPinned,
   type ThreadInfo,
 } from "@/lib/api";
-import { deleteCodeThreadLocal } from "@/lib/code/code-api";
 
 /** Сгенерировать уникальный id новой сессии (без внешних зависимостей). */
 function newThreadId(): string {
@@ -74,10 +73,6 @@ export function useThreads(mode?: string | null) {
   const remove = useCallback(
     async (id: string) => {
       await deleteThread(id);
-      // Локальные следы avy-code треда (чекпоинт + downloads). No-op вне Electron
-      // и для не-code тредов (там локального чекпоинта нет) — вызываем всегда,
-      // не блокируя удаление, если локальная чистка не удалась.
-      void deleteCodeThreadLocal(id);
       setThreads((prev) => {
         const idx = prev.findIndex((t) => t.id === id);
         const next = prev.filter((t) => t.id !== id);

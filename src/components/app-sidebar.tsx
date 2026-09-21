@@ -16,8 +16,6 @@ import {
 import { SidebarModes, MODES } from "@/components/sidebar-modes"
 import { SidebarUser } from "@/components/sidebar-user"
 import { SidebarSessions } from "@/components/sidebar-sessions"
-import { CodeExplorer } from "@/components/code/code-explorer"
-import type { FileTreeHandle } from "@/components/code/file-tree"
 import type { SessionsApi } from "@/hooks/use-threads"
 import { useT } from "@/i18n/i18n-context"
 
@@ -25,10 +23,6 @@ export function AppSidebar({
   mode,
   onModeChange,
   sessions,
-  codeRoots,
-  onCodeRootsChange,
-  codeThreadId,
-  onOpenFile,
   onOpenFiles,
   onOpenTasks,
   onOpenTask,
@@ -37,16 +31,11 @@ export function AppSidebar({
   onOpenSpace,
   onOpenSupport,
   unreadSupport,
-  fileTreeRef,
   ...props
 }: React.ComponentProps<typeof Sidebar> & {
   mode?: string
   onModeChange?: (id: string) => void
   sessions: SessionsApi
-  codeRoots?: string[]
-  onCodeRootsChange?: (roots: string[]) => void
-  codeThreadId?: string
-  onOpenFile?: (path: string) => void
   /** Открыть полноэкранный раздел «Файлы» (все сессии). */
   onOpenFiles?: () => void
   /** Открыть полноэкранный раздел «Регулярные задачи». */
@@ -63,7 +52,6 @@ export function AppSidebar({
   onOpenSupport?: () => void
   /** Обращений с непрочитанным ответом — бейдж в меню пользователя. */
   unreadSupport?: number
-  fileTreeRef?: React.RefObject<FileTreeHandle | null>
 }) {
   const [localMode, setLocalMode] = React.useState<string>(MODES[0].id)
   const value = mode ?? localMode
@@ -120,28 +108,17 @@ export function AppSidebar({
           onClick (фаза всплытия, не capture) — чтобы stopPropagation у кнопки
           удаления сессии не давал шторке закрыться. */}
       <SidebarContent className="overflow-hidden" onClick={closeOnNavigate}>
-        {/* Системный блок сверху — статичный, вне скролла (shrink-0). В avy-code
-            это проводник файлов (растягивается и скроллит своё сам). */}
-        {value === "avy-code" ? (
-          <CodeExplorer
-            roots={codeRoots ?? []}
-            onRootsChange={onCodeRootsChange}
-            threadId={codeThreadId}
-            onOpenFile={onOpenFile}
-            fileTreeRef={fileTreeRef}
+        {/* Системный блок сверху — статичный, вне скролла (shrink-0). */}
+        <div className="shrink-0">
+          <ModeBody
+            mode={value}
+            onNewChat={sessions.newSession}
+            onOpenFiles={onOpenFiles}
+            onOpenTasks={onOpenTasks}
+            onOpenAgents={onOpenAgents}
+            onOpenSpaces={onOpenSpaces}
           />
-        ) : (
-          <div className="shrink-0">
-            <ModeBody
-              mode={value}
-              onNewChat={sessions.newSession}
-              onOpenFiles={onOpenFiles}
-              onOpenTasks={onOpenTasks}
-              onOpenAgents={onOpenAgents}
-              onOpenSpaces={onOpenSpaces}
-            />
-          </div>
-        )}
+        </div>
         {/* Ниже — список сессий: единственная скролл-зона (flex-1 min-h-0). */}
         <SidebarSessions
           threads={sessions.threads}
@@ -150,9 +127,8 @@ export function AppSidebar({
           onDelete={sessions.remove}
           onRename={sessions.rename}
           onTogglePin={sessions.togglePin}
-          // Задачи и пространства — сущности ассистента; в avy-code их нет.
-          onOpenTask={value === "avy-code" ? undefined : onOpenTask}
-          onOpenSpace={value === "avy-code" ? undefined : onOpenSpace}
+          onOpenTask={onOpenTask}
+          onOpenSpace={onOpenSpace}
         />
       </SidebarContent>
       <SidebarUser onOpenSupport={onOpenSupport} unreadSupport={unreadSupport} />
