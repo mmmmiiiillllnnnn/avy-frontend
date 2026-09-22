@@ -111,11 +111,6 @@ export type Dictionary = {
     /** Приветствие выданной роли (показывается один раз при входе). */
     welcomeTitle: string;
     welcomeClose: string;
-    /** Опрос по окончании тестового периода. */
-    feedbackTitle: string;
-    feedbackBody: string;
-    feedbackGo: string;
-    feedbackLater: string;
   };
   recover: {
     title: string;
@@ -162,60 +157,33 @@ export type Dictionary = {
   settings: {
     title: string;
     general: string;
-    usage: string;
-    account: string;
-    legal: string;
     themeLight: string;
     themeDark: string;
-    plan: string;
-    creditsAvailable: string;
-    creditsOf: (remaining: string, limit: string) => string;
-    spent: (credits: string) => string;
-    resetOn: (date: string) => string;
-    unlimited: string;
-    noLimitHint: string;
-    exhausted: (date: string) => string;
     loading: string;
     close: string;
-    planFree: string;
-    planPromo: string;
-    planPro: string;
-    planEnterprise: string;
-    // --- управление аккаунтом ---
     save: string;
     saved: string;
-    genericError: string;
-    accountName: string;
-    password: string;
-    passwordCurrent: string;
-    passwordNew: string;
-    passwordConfirm: string;
-    passwordSave: string;
-    passwordSaved: string;
-    passwordWrong: string;
-    passwordMismatch: string;
-    passwordTooShort: string;
-    sessions: string;
-    passwordDesc: string;
-    sessionsDesc: string;
-    deleteAccountDesc: string;
-    logoutEverywhere: string;
-    deleteAccount: string;
-    deleteAccountWarn: (days: number) => string;
-    deleteAccountButton: string;
-    deleteAccountConfirm: string;
-    deleteAccountPasswordPrompt: string;
     cancel: string;
-    legalPrivacy: string;
-    legalTerms: string;
-    legalOpen: string;
+    nameLabel: string;
+    // --- обновления (только внутри приложения) ---
+    updates: string;
+    updatesVersion: string;
+    updatesRow: string;
+    updatesCheck: string;
+    updatesChecking: string;
+    updatesLatest: string;
+    updatesAvailable: (version: string) => string;
+    updatesInstall: string;
+    updatesInstallHint: string;
+    updatesError: string;
+    updatesNoToken: string;
+    updatesUnauthorized: string;
+    updatesBrowserHint: string;
     // --- память агентов ---
     memory: string;
     memoryEnabled: string;
     memoryScopeUser: string;
     memoryScopeSpace: (name: string) => string;
-    memoryOn: string;
-    memoryOff: string;
     memoryOffHint: string;
     memoryIntro: string;
     memoryEmpty: string;
@@ -445,44 +413,6 @@ export type Dictionary = {
     iosBody: string;
     iosStep1: string;
     iosStep2: string;
-  };
-  support: {
-    title: string;
-    subtitle: string;
-    newTicket: string;
-    empty: string;
-    emptyHint: string;
-    kindBug: string;
-    kindIdea: string;
-    kindOther: string;
-    statusOpen: string;
-    statusInProgress: string;
-    statusClosed: string;
-    subjectLabel: string;
-    subjectPlaceholder: string;
-    bodyLabel: string;
-    bodyPlaceholder: string;
-    kindLabel: string;
-    attachLabel: string;
-    attachHint: string;
-    send: string;
-    sending: string;
-    cancel: string;
-    replyPlaceholder: string;
-    reply: string;
-    staff: string;
-    you: string;
-    closedHint: string;
-    unread: string;
-    loadError: (e: string) => string;
-    /** Отзыв. */
-    reviewTitle: string;
-    reviewHint: string;
-    reviewAgain: string;
-    reviewCommentPlaceholder: string;
-    reviewSend: string;
-    reviewThanks: string;
-    ratingLabel: (n: number) => string;
   };
   agents: {
     create: string;
@@ -789,11 +719,6 @@ const ru: Dictionary = {
     consentPrivacy: "Политику конфиденциальности",
     welcomeTitle: "Добро пожаловать",
     welcomeClose: "Понятно",
-    feedbackTitle: "Как вам Avy?",
-    feedbackBody:
-      "Ваш период доступа закончился. Расскажите, что было полезно, а чего не хватило — это помогает нам развивать продукт.",
-    feedbackGo: "Оставить отзыв",
-    feedbackLater: "Не сейчас",
   },
   recover: {
     title: "Аккаунт удалён",
@@ -837,60 +762,35 @@ const ru: Dictionary = {
   settings: {
     title: "Настройки",
     general: "Общие",
-    usage: "Потребление",
-    account: "Аккаунт",
-    legal: "Документы",
     themeLight: "Светлая",
     themeDark: "Тёмная",
-    plan: "План",
-    creditsAvailable: "Доступно кредитов",
-    creditsOf: (remaining, limit) => `${remaining} из ${limit}`,
-    spent: (credits) => `Потрачено ${credits}`,
-    resetOn: (date) => `Обновление ${date}`,
-    unlimited: "∞",
-    noLimitHint: "Лимит не задан — потребление без ограничений.",
-    exhausted: (date) => `Лимит кредитов исчерпан. Обновится ${date}.`,
     loading: "Загрузка…",
     close: "Закрыть",
-    planFree: "Бесплатный",
-    planPromo: "Промо",
-    planPro: "Pro",
-    planEnterprise: "Enterprise",
     save: "Сохранить",
     saved: "Сохранено",
-    genericError: "Что-то пошло не так. Попробуйте ещё раз.",
-    accountName: "Отображаемое имя",
-    password: "Пароль",
-    passwordCurrent: "Текущий пароль",
-    passwordNew: "Новый пароль",
-    passwordConfirm: "Повторите новый пароль",
-    passwordSave: "Сменить пароль",
-    passwordSaved: "Пароль изменён. Сессии на других устройствах завершены.",
-    passwordWrong: "Неверный текущий пароль.",
-    passwordMismatch: "Пароли не совпадают.",
-    passwordTooShort: "Пароль должен быть не короче 8 символов.",
-    sessions: "Сессии",
-    passwordDesc: "Обновите пароль входа",
-    sessionsDesc: "Завершить сессии на других устройствах",
-    deleteAccountDesc: "Безвозвратно после grace-периода",
-    logoutEverywhere: "Выйти со всех устройств",
-    deleteAccount: "Удалить аккаунт",
-    deleteAccountWarn: (days) =>
-      `Аккаунт будет помечен на удаление. В течение ${days} дней его можно восстановить, войдя снова. После — данные удаляются безвозвратно.`,
-    deleteAccountButton: "Удалить аккаунт",
-    deleteAccountConfirm: "Подтвердите удаление паролем",
-    deleteAccountPasswordPrompt: "Ваш пароль",
     cancel: "Отмена",
-    legalPrivacy: "Политика конфиденциальности",
-    legalTerms: "Условия использования",
-    legalOpen: "Открыть",
+    nameLabel: "Имя",
+    updates: "Обновления",
+    updatesVersion: "Версия",
+    updatesRow: "Новая версия",
+    updatesCheck: "Проверить обновления",
+    updatesChecking: "Проверяю…",
+    updatesLatest: "У вас последняя версия.",
+    updatesAvailable: (version) => `Доступна версия ${version}`,
+    updatesInstall: "Скачать и установить",
+    updatesInstallHint:
+      "Приложение скачает обновление, остановит сервисы, поставит новые и запустит их снова. Это займёт несколько минут; открытые чаты сохранятся.",
+    updatesError: "Не удалось связаться с сервером обновлений.",
+    updatesNoToken:
+      "В настройках установки нет токена обновлений (AVY_UPDATE_TOKEN в .env).",
+    updatesUnauthorized:
+      "Сервер обновлений не принял токен этой установки (AVY_UPDATE_TOKEN в .env).",
+    updatesBrowserHint: "Обновления ставятся из приложения Avy.",
     memory: "Память",
     memoryEnabled: "Запоминать",
     memoryScopeUser: "О вас",
     memoryScopeSpace: (name: string) =>
       name ? `Пространство «${name}»` : "Пространство",
-    memoryOn: "Да",
-    memoryOff: "Нет",
     memoryOffHint:
       "Новые записи не появляются, старые не используются в ответах. Всё, что уже записано, сохранено — включите, и оно снова заработает.",
     memoryIntro:
@@ -1121,43 +1021,6 @@ const ru: Dictionary = {
     iosBody: "Добавьте Avy на экран «Домой» — откроется как приложение.",
     iosStep1: "Поделиться →",
     iosStep2: "На экран «Домой»",
-  },
-  support: {
-    title: "Обратная связь",
-    subtitle: "Сообщите о проблеме или предложите идею — мы читаем всё",
-    newTicket: "Новое обращение",
-    empty: "Обращений пока нет",
-    emptyHint: "Нашли ошибку или чего-то не хватает? Напишите нам.",
-    kindBug: "Проблема",
-    kindIdea: "Идея",
-    kindOther: "Другое",
-    statusOpen: "Открыто",
-    statusInProgress: "В работе",
-    statusClosed: "Закрыто",
-    subjectLabel: "Тема",
-    subjectPlaceholder: "Коротко о сути",
-    bodyLabel: "Описание",
-    bodyPlaceholder: "Что произошло и что вы ожидали увидеть?",
-    kindLabel: "Тип обращения",
-    attachLabel: "Прикрепить скриншот",
-    attachHint: "Изображения до 10 МБ",
-    send: "Отправить",
-    sending: "Отправляем…",
-    cancel: "Отмена",
-    replyPlaceholder: "Написать ответ…",
-    reply: "Ответить",
-    staff: "Поддержка",
-    you: "Вы",
-    closedHint: "Обращение закрыто. Можно написать — оно снова откроется.",
-    unread: "новый ответ",
-    loadError: (e) => `Не удалось загрузить: ${e}`,
-    reviewTitle: "Оцените Avy",
-    reviewHint: "Насколько продукт оказался полезен?",
-    reviewAgain: "Оставить ещё один",
-    reviewCommentPlaceholder: "Что понравилось, а чего не хватило? (необязательно)",
-    reviewSend: "Отправить отзыв",
-    reviewThanks: "Спасибо! Отзыв отправлен.",
-    ratingLabel: (n) => `Оценка ${n} из 5`,
   },
   agents: {
     create: "Создать агента",
@@ -1507,11 +1370,6 @@ const en: Dictionary = {
     consentPrivacy: "Privacy Policy",
     welcomeTitle: "Welcome",
     welcomeClose: "Got it",
-    feedbackTitle: "How was Avy?",
-    feedbackBody:
-      "Your access period has ended. Tell us what worked and what was missing — it helps us shape the product.",
-    feedbackGo: "Leave feedback",
-    feedbackLater: "Not now",
   },
   recover: {
     title: "Account deleted",
@@ -1555,59 +1413,33 @@ const en: Dictionary = {
   settings: {
     title: "Settings",
     general: "General",
-    usage: "Usage",
-    account: "Account",
-    legal: "Legal",
     themeLight: "Light",
     themeDark: "Dark",
-    plan: "Plan",
-    creditsAvailable: "Credits available",
-    creditsOf: (remaining, limit) => `${remaining} of ${limit}`,
-    spent: (credits) => `Spent ${credits}`,
-    resetOn: (date) => `Resets ${date}`,
-    unlimited: "∞",
-    noLimitHint: "No limit set — unlimited usage.",
-    exhausted: (date) => `Credit limit reached. Resets ${date}.`,
     loading: "Loading…",
     close: "Close",
-    planFree: "Free",
-    planPromo: "Promo",
-    planPro: "Pro",
-    planEnterprise: "Enterprise",
     save: "Save",
     saved: "Saved",
-    genericError: "Something went wrong. Please try again.",
-    accountName: "Display name",
-    password: "Password",
-    passwordCurrent: "Current password",
-    passwordNew: "New password",
-    passwordConfirm: "Repeat new password",
-    passwordSave: "Change password",
-    passwordSaved: "Password changed. Sessions on other devices were ended.",
-    passwordWrong: "Current password is incorrect.",
-    passwordMismatch: "Passwords don't match.",
-    passwordTooShort: "Password must be at least 8 characters.",
-    sessions: "Sessions",
-    passwordDesc: "Update your sign-in password",
-    sessionsDesc: "End sessions on other devices",
-    deleteAccountDesc: "Permanent after the grace period",
-    logoutEverywhere: "Sign out of all devices",
-    deleteAccount: "Delete account",
-    deleteAccountWarn: (days) =>
-      `Your account will be marked for deletion. You can restore it within ${days} days by signing in again. After that, the data is permanently erased.`,
-    deleteAccountButton: "Delete account",
-    deleteAccountConfirm: "Confirm deletion with your password",
-    deleteAccountPasswordPrompt: "Your password",
     cancel: "Cancel",
-    legalPrivacy: "Privacy Policy",
-    legalTerms: "Terms of Service",
-    legalOpen: "Open",
+    nameLabel: "Name",
+    updates: "Updates",
+    updatesVersion: "Version",
+    updatesRow: "New version",
+    updatesCheck: "Check for updates",
+    updatesChecking: "Checking…",
+    updatesLatest: "You're on the latest version.",
+    updatesAvailable: (version) => `Version ${version} is available`,
+    updatesInstall: "Download and install",
+    updatesInstallHint:
+      "The app will download the update, stop the services, install the new ones and start them again. It takes a few minutes; your chats are kept.",
+    updatesError: "Couldn't reach the update server.",
+    updatesNoToken: "This installation has no update token (AVY_UPDATE_TOKEN in .env).",
+    updatesUnauthorized:
+      "The update server rejected this installation's token (AVY_UPDATE_TOKEN in .env).",
+    updatesBrowserHint: "Updates are installed from the Avy app.",
     memory: "Memory",
     memoryEnabled: "Remember",
     memoryScopeUser: "About you",
     memoryScopeSpace: (name: string) => (name ? `Space “${name}”` : "Space"),
-    memoryOn: "Yes",
-    memoryOff: "No",
     memoryOffHint:
       "Nothing new gets written, and existing notes stay out of replies. Everything already saved is kept — turn this back on and it works again.",
     memoryIntro:
@@ -1837,43 +1669,6 @@ const en: Dictionary = {
     iosBody: "Add Avy to your Home Screen — it opens like an app.",
     iosStep1: "Share →",
     iosStep2: "Add to Home Screen",
-  },
-  support: {
-    title: "Feedback",
-    subtitle: "Report a problem or suggest an idea — we read everything",
-    newTicket: "New request",
-    empty: "No requests yet",
-    emptyHint: "Found a bug or missing something? Let us know.",
-    kindBug: "Problem",
-    kindIdea: "Idea",
-    kindOther: "Other",
-    statusOpen: "Open",
-    statusInProgress: "In progress",
-    statusClosed: "Closed",
-    subjectLabel: "Subject",
-    subjectPlaceholder: "In a few words",
-    bodyLabel: "Description",
-    bodyPlaceholder: "What happened and what did you expect?",
-    kindLabel: "Request type",
-    attachLabel: "Attach a screenshot",
-    attachHint: "Images up to 10 MB",
-    send: "Send",
-    sending: "Sending…",
-    cancel: "Cancel",
-    replyPlaceholder: "Write a reply…",
-    reply: "Reply",
-    staff: "Support",
-    you: "You",
-    closedHint: "This request is closed. Writing here reopens it.",
-    unread: "new reply",
-    loadError: (e) => `Failed to load: ${e}`,
-    reviewTitle: "Rate Avy",
-    reviewHint: "How useful was the product?",
-    reviewAgain: "Leave another one",
-    reviewCommentPlaceholder: "What worked, what was missing? (optional)",
-    reviewSend: "Send feedback",
-    reviewThanks: "Thank you! Your feedback was sent.",
-    ratingLabel: (n) => `Rating ${n} of 5`,
   },
   agents: {
     create: "Create agent",

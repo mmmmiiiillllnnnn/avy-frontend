@@ -793,32 +793,15 @@ export function recoverAccount(input: {
 }
 
 // --- Управление своим аккаунтом ---------------------------------------------
-
-/** Сменить пароль. wrong_password — неверный текущий. */
-export async function changePassword(
-  current: string,
-  next: string,
-): Promise<void> {
-  await jsonPost(`${API_BASE}/api/me/password`, {
-    current_password: current,
-    new_password: next,
-  });
-}
+//
+// Смена пароля, выход со всех устройств и удаление аккаунта убраны из клиента:
+// установка на одного человека на его машине, учётка создаётся установщиком.
+// Осталось имя — оно видно в сайдбаре и уходит агенту как обращение.
 
 /** Сменить отображаемое имя. Возвращает обновлённого пользователя. */
 export async function changeName(name: string): Promise<AuthUser> {
   const res = await jsonPost(`${API_BASE}/api/me/profile`, { name });
   return res.json();
-}
-
-/** Выйти со всех устройств (снести все сессии). */
-export async function logoutEverywhere(): Promise<void> {
-  await jsonPost(`${API_BASE}/api/me/logout-all`, {});
-}
-
-/** Удалить аккаунт (мягко, с grace-периодом). Требует подтверждения паролем. */
-export async function deleteAccount(password: string): Promise<void> {
-  await jsonPost(`${API_BASE}/api/me/delete`, { password });
 }
 
 /** Текущий пользователь по сессии (null — не залогинен). */
@@ -839,15 +822,13 @@ export async function fetchMe(): Promise<AuthUser | null> {
 export type EntryPrompts = {
   /** Приветствие выданной роли, Markdown. null — показывать нечего. */
   welcome: string | null;
-  /** Период роли кончился, обратная связь ещё не собрана. */
-  feedbackDue: boolean;
 };
 
-/** Приветствие и долг по обратной связи. Отдельным вызовом от fetchMe: тот
+/** Приветствие при входе. Отдельным вызовом от fetchMe: тот
  *  зовут в нескольких местах ради самого пользователя, а это нужно один раз
  *  при загрузке — и его отказ не должен мешать входу. */
 export async function fetchEntryPrompts(): Promise<EntryPrompts> {
-  const empty: EntryPrompts = { welcome: null, feedbackDue: false };
+  const empty: EntryPrompts = { welcome: null };
   try {
     const res = await fetch(`${API_BASE}/api/auth/me`, {
       credentials: CREDENTIALS,
@@ -856,7 +837,6 @@ export async function fetchEntryPrompts(): Promise<EntryPrompts> {
     const data = await res.json();
     return {
       welcome: data.prompts?.welcome ?? null,
-      feedbackDue: Boolean(data.prompts?.feedbackDue),
     };
   } catch {
     return empty;
@@ -866,11 +846,6 @@ export async function fetchEntryPrompts(): Promise<EntryPrompts> {
 /** Отметить приветствие показанным — больше оно не всплывёт. */
 export async function markWelcomeSeen(): Promise<void> {
   await jsonPost(`${API_BASE}/api/me/welcome-seen`, {});
-}
-
-/** Снять долг по обратной связи (опрос пройден либо пользователь отказался). */
-export async function markFeedbackDone(): Promise<void> {
-  await jsonPost(`${API_BASE}/api/me/feedback-done`, {});
 }
 
 // --- Лимит / кредиты пользователя -------------------------------------------
@@ -2168,133 +2143,4 @@ export async function deleteTaskSecret(id: string, key: string): Promise<void> {
     `${RT_BASE}/${encodeURIComponent(id)}/secrets/${encodeURIComponent(key)}`,
     { method: "DELETE", credentials: CREDENTIALS },
   );
-}
-
-// --- Обратная связь: обращения и отзывы --------------------------------------
-//
-// Не путать с лайком/дизлайком ответа (sendMessageFeedback выше) — здесь
-// обращения человека к нам: баг, идея, отзыв о продукте.
-
-const SUPPORT_BASE = `${API_BASE}/api/support`;
-
-/** Тип обращения. Три штуки — так же, как их знает бэкенд. */
-export type TicketKind = "bug" | "idea" | "other";
-export type TicketStatus = "open" | "in_progress" | "closed";
-
-export type TicketMessage = {
-  id: string;
-  body: string;
-  /** Написано стороной поддержки (иначе — самим пользователем). */
-  isStaff: boolean;
-  createdAt: string;
-};
-
-export type Ticket = {
-  id: string;
-  kind: TicketKind;
-  subject: string;
-  body: string;
-  status: TicketStatus;
-  threadId: string | null;
-  /** НОМЕРА вложений (0..n-1) — ключи S3 наружу не отдаются. */
-  attachments: number[];
-  createdAt: string;
-  updatedAt: string;
-  /** Есть непрочитанный ответ поддержки. */
-  unread: boolean;
-  /** Только при запросе одного обращения. */
-  messages?: TicketMessage[];
-};
-
-export async function listTickets(): Promise<Ticket[]> {
-  const res = await fetch(`${SUPPORT_BASE}/tickets`, { credentials: CREDENTIALS });
-  if (!res.ok) throw new Error(`Не удалось загрузить обращения (${res.status})`);
-  return (await res.json()).tickets ?? [];
-}
-
-/** Обращение с перепиской. Открытие снимает отметку непрочитанного (на сервере). */
-export async function fetchTicket(id: string): Promise<Ticket> {
-  const res = await fetch(`${SUPPORT_BASE}/tickets/${encodeURIComponent(id)}`, {
-    credentials: CREDENTIALS,
-  });
-  if (!res.ok) throw new Error(`Обращение не найдено (${res.status})`);
-  return res.json();
-}
-
-/** Создать обращение. multipart: вместе с текстом может уехать скриншот. */
-export async function createTicket(input: {
-  kind: TicketKind;
-  subject: string;
-  body: string;
-  threadId?: string | null;
-  locale?: string;
-  files?: File[];
-}): Promise<string> {
-  const form = new FormData();
-  form.append("kind", input.kind);
-  form.append("subject", input.subject);
-  form.append("body", input.body);
-  if (input.threadId) form.append("thread_id", input.threadId);
-  if (input.locale) form.append("locale", input.locale);
-  for (const f of input.files ?? []) form.append("files", f, f.name);
-  const res = await fetch(`${SUPPORT_BASE}/tickets`, {
-    method: "POST",
-    credentials: CREDENTIALS,
-    body: form,
-  });
-  if (!res.ok) {
-    // 413/415 несут понятную человеку причину (размер, не картинка) — её и
-    // показываем, а не «ошибка 415».
-    const detail = await res.json().catch(() => null);
-    throw new Error(detail?.detail || `Не удалось отправить (${res.status})`);
-  }
-  return (await res.json()).id;
-}
-
-export async function replyToTicket(id: string, body: string): Promise<void> {
-  const res = await fetch(`${SUPPORT_BASE}/tickets/${encodeURIComponent(id)}/reply`, {
-    method: "POST",
-    credentials: CREDENTIALS,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ body }),
-  });
-  if (!res.ok) throw new Error(`Не удалось отправить (${res.status})`);
-}
-
-/** Адрес скриншота обращения (по номеру — ключ S3 клиенту не известен). */
-export function ticketAttachmentUrl(id: string, index: number): string {
-  return `${SUPPORT_BASE}/tickets/${encodeURIComponent(id)}/attachments/${index}`;
-}
-
-/** Сколько обращений с непрочитанным ответом (бейдж в сайдбаре). */
-export async function fetchUnreadTickets(): Promise<number> {
-  try {
-    const res = await fetch(`${SUPPORT_BASE}/unread`, { credentials: CREDENTIALS });
-    if (!res.ok) return 0;
-    return (await res.json()).count ?? 0;
-  } catch {
-    return 0;
-  }
-}
-
-/** Оставить отзыв. Оценка обязательна, текст — нет. source="role_expiry"
- *  снимает долг по обратной связи после окончания тестового периода. */
-export async function createReview(input: {
-  rating: number;
-  body?: string;
-  source?: "manual" | "role_expiry";
-  locale?: string;
-}): Promise<void> {
-  const res = await fetch(`${SUPPORT_BASE}/reviews`, {
-    method: "POST",
-    credentials: CREDENTIALS,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      rating: input.rating,
-      body: input.body ?? "",
-      source: input.source ?? "manual",
-      locale: input.locale,
-    }),
-  });
-  if (!res.ok) throw new Error(`Не удалось отправить отзыв (${res.status})`);
 }

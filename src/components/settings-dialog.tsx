@@ -5,58 +5,36 @@ import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 import {
   Brain,
-  ChevronDown,
-  FileText,
-  Gauge,
-  KeyRound,
+  Download,
   Loader2,
-  LogOut,
+  RefreshCw,
   SlidersHorizontal,
-  Trash2,
-  User as UserIcon,
   X,
 } from "lucide-react";
-import Link from "next/link";
 import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
 import {
-  AuthError,
   changeName,
-  changePassword,
-  deleteAccount,
   fetchMemorySettings,
   fetchMyMemory,
-  fetchUsage,
-  logoutEverywhere,
   setMemoryEnabled,
   type MemoryOwner,
-  type UsageInfo,
 } from "@/lib/api";
 import { MemoryGroups } from "@/components/memory-list";
+import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/components/auth/auth-provider";
+import { desktopBridge, type UpdateCheck } from "@/hooks/use-is-desktop";
 import { useLocale, useT } from "@/i18n/i18n-context";
 import type { Locale } from "@/lib/locale";
 
-type Section = "general" | "memory" | "usage" | "account" | "legal";
+// Два раздела. Аккаунт, пароли, потребление и документы убраны: установка
+// на одного человека на его машине — сменить пароль или удалить аккаунт
+// негде и незачем, кредитов нет, а юридические документы относятся к
+// облачному сервису.
+type Section = "general" | "memory";
 
 const FIELD_CLS =
-  "w-full rounded-xl border border-border bg-foreground/5 px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground/70 transition-colors focus:border-primary/60 focus:bg-primary/5 focus:outline-none";
-
-function fmtCredits(n: number | null | undefined, locale: string): string {
-  if (n === null || n === undefined) return "∞";
-  return Math.round(n).toLocaleString(locale === "ru" ? "ru-RU" : "en-US");
-}
-
-function fmtReset(iso: string | null, locale: string): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString(locale === "ru" ? "ru-RU" : "en-US", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
-}
+  "rounded-xl border border-border bg-foreground/5 px-3.5 py-2 text-sm text-foreground placeholder:text-muted-foreground/70 transition-colors focus:border-primary/60 focus:bg-primary/5 focus:outline-none";
 
 /** Сегментированный переключатель темы / языка (две опции).
  *
@@ -113,6 +91,187 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
+/** Имя — единственное, что осталось от «аккаунта»: оно показывается в
+ *  сайдбаре и уходит агенту как обращение. Меняется по месту, без формы. */
+function NameRow() {
+  const t = useT();
+  const { user, setUser } = useAuth();
+  const [name, setName] = React.useState(user?.name ?? "");
+  const [busy, setBusy] = React.useState(false);
+  const [done, setDone] = React.useState(false);
+  const dirty = name.trim() !== "" && name.trim() !== (user?.name ?? "");
+
+  const save = async () => {
+    if (!dirty || busy) return;
+    setBusy(true);
+    setDone(false);
+    try {
+      const updated = await changeName(name.trim());
+      setUser(updated);
+      setDone(true);
+    } catch {
+      /* имя не критично — поле остаётся с введённым, можно повторить */
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Row label={t.settings.nameLabel}>
+      <span className="flex items-center gap-2">
+        <input
+          value={name}
+          onChange={(e) => {
+            setName(e.target.value);
+            setDone(false);
+          }}
+          onKeyDown={(e) => e.key === "Enter" && save()}
+          className={cn(FIELD_CLS, "w-44 sm:w-56")}
+          maxLength={120}
+        />
+        <button
+          type="button"
+          onClick={save}
+          disabled={!dirty || busy}
+          className="shrink-0 rounded-xl bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+        >
+          {busy ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : done ? (
+            t.settings.saved
+          ) : (
+            t.settings.save
+          )}
+        </button>
+      </span>
+    </Row>
+  );
+}
+
+/** Обновления. Работают ТОЛЬКО внутри приложения: заменить контейнеры может
+ *  лишь процесс окна (desktop/src/main.js) — бэкенд живёт в них сам.
+ *  Сервер не опрашивается сам по себе: проверка по кнопке, установка по
+ *  кнопке. Во время установки окно уходит в свои экраны хода, а эта страница
+ *  выгружается вместе со старым стеком — поэтому здесь нет прогресса. */
+function UpdatesBlock() {
+  const t = useT();
+  const a = t.settings;
+  const bridge = desktopBridge();
+  const [current, setCurrent] = React.useState<string>("");
+  const [check, setCheck] = React.useState<UpdateCheck | null>(null);
+  const [checking, setChecking] = React.useState(false);
+  const [installing, setInstalling] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!bridge) return;
+    let alive = true;
+    bridge.updates.current().then((v) => alive && setCurrent(v || ""));
+    return () => {
+      alive = false;
+    };
+  }, [bridge]);
+
+  const doCheck = async () => {
+    if (!bridge || checking) return;
+    setChecking(true);
+    try {
+      const res = await bridge.updates.check();
+      setCheck(res);
+      if (res.current) setCurrent(res.current);
+    } catch (e) {
+      setCheck({ current, error: (e as Error)?.message || "error" });
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const doInstall = () => {
+    if (!bridge || !check?.latest || installing) return;
+    setInstalling(true);
+    // Дальше окно само: скачает, погасит стек, поставит и вернёт чат.
+    void bridge.updates.install(check.latest).catch(() => setInstalling(false));
+  };
+
+  if (!bridge) {
+    return (
+      <div className="flex flex-col divide-y divide-border">
+        <Row label={a.updates}>
+          <span className="text-sm text-muted-foreground">{a.updatesBrowserHint}</span>
+        </Row>
+      </div>
+    );
+  }
+
+  const available = Boolean(check && !check.error && check.available && check.latest);
+  let status: React.ReactNode = null;
+  if (check?.error) {
+    const text =
+      check.code === "no_token"
+        ? a.updatesNoToken
+        : check.code === "unauthorized"
+          ? a.updatesUnauthorized
+          : a.updatesError;
+    status = <span className="text-sm text-destructive">{text}</span>;
+  } else if (available) {
+    status = (
+      <span className="text-sm font-medium text-foreground">
+        {a.updatesAvailable(check!.latest!)}
+      </span>
+    );
+  } else if (check) {
+    status = <span className="text-sm text-muted-foreground">{a.updatesLatest}</span>;
+  }
+
+  return (
+    <div className="flex flex-col divide-y divide-border">
+      <Row label={a.updatesVersion}>
+        <span className="text-sm font-medium tabular-nums">{current || "—"}</span>
+      </Row>
+      <div className="flex flex-col gap-3 py-3">
+        <div className="flex items-center justify-between gap-4">
+          <span className="text-sm text-muted-foreground">{a.updatesRow}</span>
+          {available ? (
+            <button
+              type="button"
+              onClick={doInstall}
+              disabled={installing}
+              className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-60"
+            >
+              {installing ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Download className="size-4" />
+              )}
+              {a.updatesInstall}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={doCheck}
+              disabled={checking}
+              className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-60"
+            >
+              {checking ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <RefreshCw className="size-4" />
+              )}
+              {checking ? a.updatesChecking : a.updatesCheck}
+            </button>
+          )}
+        </div>
+        {status && <div className="flex items-center justify-between gap-4">{status}</div>}
+        {available && (
+          <p className="text-xs text-muted-foreground">{a.updatesInstallHint}</p>
+        )}
+        {check?.error && check.code === "network" && (
+          <p className="break-all text-xs text-muted-foreground">{check.error}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function GeneralSection() {
   const t = useT();
   const { locale, setLocale } = useLocale();
@@ -125,450 +284,36 @@ function GeneralSection() {
   const theme = mounted && resolvedTheme === "dark" ? "dark" : "light";
 
   return (
-    <div className="flex flex-col divide-y divide-border">
-      <Row label={t.sidebar.theme}>
-        <Segmented
-          layoutId="settings-seg-theme"
-          value={theme}
-          options={[
-            { id: "light", label: t.settings.themeLight },
-            { id: "dark", label: t.settings.themeDark },
-          ]}
-          onChange={(v) => setTheme(v)}
-        />
-      </Row>
-      <Row label={t.sidebar.language}>
-        <Segmented
-          layoutId="settings-seg-lang"
-          value={locale}
-          options={[
-            { id: "ru" as Locale, label: "RU" },
-            { id: "en" as Locale, label: "EN" },
-          ]}
-          onChange={(v) => setLocale(v)}
-        />
-      </Row>
-    </div>
-  );
-}
-
-const PLAN_KEY: Record<string, keyof ReturnType<typeof useT>["settings"]> = {
-  free: "planFree",
-  promo: "planPromo",
-  pro: "planPro",
-  enterprise: "planEnterprise",
-};
-
-function UsageSection() {
-  const t = useT();
-  const { locale } = useLocale();
-  const [usage, setUsage] = React.useState<UsageInfo | null>(null);
-  const [loading, setLoading] = React.useState(true);
-
-  React.useEffect(() => {
-    setLoading(true);
-    fetchUsage()
-      .then(setUsage)
-      .finally(() => setLoading(false));
-  }, []);
-
-  if (loading && !usage) {
-    return <div className="text-sm text-muted-foreground">{t.settings.loading}</div>;
-  }
-
-  const limited = usage?.limited ?? false;
-  const limit = usage?.limit_credits ?? null;
-  const spent = usage?.spent_credits ?? 0;
-  const remaining = usage?.remaining_credits ?? null;
-  const ratio = limited && limit && limit > 0 ? Math.min(1, spent / limit) : 0;
-  const planKey = PLAN_KEY[usage?.plan ?? ""];
-  const planLabel = planKey ? (t.settings[planKey] as string) : (usage?.plan ?? "—");
-
-  return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col divide-y divide-border">
-        <Row label={t.settings.plan}>
-          <span className="text-sm font-medium">{planLabel}</span>
-        </Row>
-        <Row label={t.settings.creditsAvailable}>
-          <span className="text-sm font-medium tabular-nums">
-            {limited
-              ? t.settings.creditsOf(
-                  fmtCredits(remaining, locale),
-                  fmtCredits(limit, locale),
-                )
-              : t.settings.unlimited}
-          </span>
-        </Row>
-      </div>
-
-      {limited && (
-        <div className="flex flex-col gap-2">
-          <div className="h-2.5 w-full overflow-hidden rounded-full bg-muted">
-            <div
-              className={cn(
-                "h-full rounded-full transition-all",
-                ratio >= 1 ? "bg-destructive" : "bg-primary",
-              )}
-              style={{ width: `${Math.round(ratio * 100)}%` }}
-            />
-          </div>
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{t.settings.spent(fmtCredits(spent, locale))}</span>
-            <span>{t.settings.resetOn(fmtReset(usage?.reset_at ?? null, locale))}</span>
-          </div>
-        </div>
-      )}
-
-      {usage?.exhausted && (
-        <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {t.settings.exhausted(fmtReset(usage?.reset_at ?? null, locale))}
-        </div>
-      )}
-
-      {!limited && (
-        <p className="text-xs text-muted-foreground">{t.settings.noLimitHint}</p>
-      )}
-    </div>
-  );
-}
-
-/**
- * Раскрывающаяся строка настроек: слева иконка в тонированном квадрате +
- * заголовок и приглушённое описание, справа — шеврон. По клику разворачивает
- * содержимое (форму) под собой. Опасные действия — с danger-окраской.
- */
-function SettingRow({
-  icon: Icon,
-  title,
-  description,
-  danger = false,
-  open,
-  onToggle,
-  children,
-}: {
-  icon: typeof Gauge;
-  title: string;
-  description: string;
-  danger?: boolean;
-  open: boolean;
-  onToggle: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <button
-        type="button"
-        onClick={onToggle}
-        className="group flex w-full items-center gap-3 rounded-xl px-2 py-3 text-left transition-colors hover:bg-accent/40"
-      >
-        <span
-          className={cn(
-            "flex size-9 shrink-0 items-center justify-center rounded-lg",
-            danger
-              ? "bg-destructive/10 text-destructive"
-              : "bg-primary/10 text-primary",
-          )}
-        >
-          <Icon className="size-[1.05rem]" strokeWidth={2} />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span
-            className={cn(
-              "block text-sm font-medium",
-              danger ? "text-destructive" : "text-foreground",
-            )}
-          >
-            {title}
-          </span>
-          <span className="block truncate text-xs text-muted-foreground">
-            {description}
-          </span>
-        </span>
-        <ChevronDown
-          className={cn(
-            "size-4 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground",
-            open && "rotate-180",
-          )}
-        />
-      </button>
-      {open && <div className="px-2 pb-3 pt-1">{children}</div>}
-    </div>
-  );
-}
-
-/** Управление аккаунтом: имя, пароль, выход со всех устройств, удаление. */
-function AccountSection({ onClose }: { onClose: () => void }) {
-  const t = useT();
-  const { user, setUser, logout } = useAuth();
-  const a = t.settings;
-
-  // --- имя ---
-  const [name, setName] = React.useState(user?.name ?? "");
-  const [nameBusy, setNameBusy] = React.useState(false);
-  const [nameDone, setNameDone] = React.useState(false);
-
-  const saveName = async () => {
-    const next = name.trim();
-    if (!next || next === user?.name || nameBusy) return;
-    setNameBusy(true);
-    setNameDone(false);
-    try {
-      const updated = await changeName(next);
-      setUser(updated);
-      setNameDone(true);
-    } catch {
-      /* имя не критично — молча */
-    } finally {
-      setNameBusy(false);
-    }
-  };
-
-  // Какая из раскрывающихся секций открыта (одна за раз).
-  const [openPanel, setOpenPanel] = React.useState<
-    "password" | "sessions" | "delete" | null
-  >(null);
-  const toggle = (p: "password" | "sessions" | "delete") =>
-    setOpenPanel((cur) => (cur === p ? null : p));
-
-  // --- пароль ---
-  const [cur, setCur] = React.useState("");
-  const [next, setNext] = React.useState("");
-  const [confirm, setConfirm] = React.useState("");
-  const [pwdBusy, setPwdBusy] = React.useState(false);
-  const [pwdMsg, setPwdMsg] = React.useState<{ ok: boolean; text: string } | null>(
-    null,
-  );
-
-  const savePassword = async () => {
-    if (pwdBusy) return;
-    setPwdMsg(null);
-    if (next.length < 8) {
-      setPwdMsg({ ok: false, text: a.passwordTooShort });
-      return;
-    }
-    if (next !== confirm) {
-      setPwdMsg({ ok: false, text: a.passwordMismatch });
-      return;
-    }
-    setPwdBusy(true);
-    try {
-      await changePassword(cur, next);
-      setPwdMsg({ ok: true, text: a.passwordSaved });
-      setCur("");
-      setNext("");
-      setConfirm("");
-    } catch (err) {
-      const wrong = err instanceof AuthError && err.code === "wrong_password";
-      setPwdMsg({ ok: false, text: wrong ? a.passwordWrong : a.genericError });
-    } finally {
-      setPwdBusy(false);
-    }
-  };
-
-  // --- выход со всех устройств ---
-  const [sessionsBusy, setSessionsBusy] = React.useState(false);
-  const doLogoutEverywhere = async () => {
-    if (sessionsBusy) return;
-    setSessionsBusy(true);
-    try {
-      await logoutEverywhere();
-      await logout();
-    } finally {
-      setSessionsBusy(false);
-    }
-  };
-
-  // --- удаление аккаунта ---
-  const [delPwd, setDelPwd] = React.useState("");
-  const [delBusy, setDelBusy] = React.useState(false);
-  const [delErr, setDelErr] = React.useState<string | null>(null);
-  const doDelete = async () => {
-    if (delBusy) return;
-    setDelErr(null);
-    setDelBusy(true);
-    try {
-      await deleteAccount(delPwd);
-      await logout();
-      onClose();
-    } catch (err) {
-      const wrong = err instanceof AuthError && err.code === "wrong_password";
-      setDelErr(wrong ? a.passwordWrong : a.genericError);
-    } finally {
-      setDelBusy(false);
-    }
-  };
-
-  return (
-    <div className="flex flex-col gap-6">
-      {/* Профиль: аватар-инициал + имя. Имя — частое безопасное действие, инлайн. */}
-      <div className="flex items-center gap-3">
-        <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-primary/10 text-base font-semibold uppercase text-primary">
-          {(user?.name?.[0] ?? user?.email?.[0] ?? "?").toUpperCase()}
-        </span>
-        <div className="min-w-0">
-          <div className="truncate text-sm font-medium text-foreground">
-            {user?.name || "—"}
-          </div>
-          <div className="truncate text-xs text-muted-foreground">
-            {user?.email}
-          </div>
-        </div>
-      </div>
-
-      {/* Имя */}
-      <div>
-        <label className="mb-1.5 block text-sm font-medium text-foreground">
-          {a.accountName}
-        </label>
-        <div className="flex gap-2">
-          <input
-            value={name}
-            onChange={(e) => {
-              setName(e.target.value);
-              setNameDone(false);
-            }}
-            className={FIELD_CLS}
-            maxLength={120}
+        <Row label={t.sidebar.theme}>
+          <Segmented
+            layoutId="settings-seg-theme"
+            value={theme}
+            options={[
+              { id: "light", label: t.settings.themeLight },
+              { id: "dark", label: t.settings.themeDark },
+            ]}
+            onChange={(v) => setTheme(v)}
           />
-          <button
-            type="button"
-            onClick={saveName}
-            disabled={nameBusy || !name.trim() || name.trim() === user?.name}
-            className="shrink-0 rounded-xl bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
-          >
-            {nameBusy ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : nameDone ? (
-              a.saved
-            ) : (
-              a.save
-            )}
-          </button>
-        </div>
+        </Row>
+        <Row label={t.sidebar.language}>
+          <Segmented
+            layoutId="settings-seg-lang"
+            value={locale}
+            options={[
+              { id: "ru" as Locale, label: "RU" },
+              { id: "en" as Locale, label: "EN" },
+            ]}
+            onChange={(v) => setLocale(v)}
+          />
+        </Row>
+        <NameRow />
       </div>
 
-      {/* Действия-строки с иконками. Пароль/удаление раскрываются формой;
-          выход со всех устройств — простое действие, отдельной строкой-кнопкой. */}
-      <div className="-mx-2 flex flex-col rounded-2xl border border-border/60 bg-muted/20 p-1.5">
-        {/* Смена пароля */}
-        <SettingRow
-          icon={KeyRound}
-          title={a.password}
-          description={a.passwordDesc}
-          open={openPanel === "password"}
-          onToggle={() => toggle("password")}
-        >
-          <div className="flex flex-col gap-2">
-            <input
-              type="password"
-              value={cur}
-              onChange={(e) => setCur(e.target.value)}
-              placeholder={a.passwordCurrent}
-              autoComplete="current-password"
-              className={FIELD_CLS}
-            />
-            <input
-              type="password"
-              value={next}
-              onChange={(e) => setNext(e.target.value)}
-              placeholder={a.passwordNew}
-              autoComplete="new-password"
-              className={FIELD_CLS}
-            />
-            <input
-              type="password"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              placeholder={a.passwordConfirm}
-              autoComplete="new-password"
-              className={FIELD_CLS}
-            />
-            {pwdMsg && (
-              <p
-                className={cn(
-                  "text-sm",
-                  pwdMsg.ok ? "text-primary" : "text-destructive",
-                )}
-              >
-                {pwdMsg.text}
-              </p>
-            )}
-            <button
-              type="button"
-              onClick={savePassword}
-              disabled={pwdBusy || !cur || !next || !confirm}
-              className="self-start rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
-            >
-              {pwdBusy ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                a.passwordSave
-              )}
-            </button>
-          </div>
-        </SettingRow>
-
-        {/* Выход со всех устройств — простое действие, без раскрытия. */}
-        <button
-          type="button"
-          onClick={doLogoutEverywhere}
-          disabled={sessionsBusy}
-          className="group flex w-full items-center gap-3 rounded-xl px-2 py-3 text-left transition-colors hover:bg-accent/40 disabled:opacity-60"
-        >
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-            {sessionsBusy ? (
-              <Loader2 className="size-[1.05rem] animate-spin" />
-            ) : (
-              <LogOut className="size-[1.05rem]" strokeWidth={2} />
-            )}
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-sm font-medium text-foreground">
-              {a.logoutEverywhere}
-            </span>
-            <span className="block truncate text-xs text-muted-foreground">
-              {a.sessionsDesc}
-            </span>
-          </span>
-        </button>
-
-        {/* Удаление аккаунта */}
-        <SettingRow
-          icon={Trash2}
-          title={a.deleteAccount}
-          description={a.deleteAccountDesc}
-          danger
-          open={openPanel === "delete"}
-          onToggle={() => toggle("delete")}
-        >
-          <div className="flex flex-col gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-3">
-            <p className="text-sm text-muted-foreground">
-              {a.deleteAccountWarn(60)}
-            </p>
-            <input
-              type="password"
-              value={delPwd}
-              onChange={(e) => setDelPwd(e.target.value)}
-              placeholder={a.deleteAccountPasswordPrompt}
-              autoComplete="current-password"
-              className={FIELD_CLS}
-            />
-            {delErr && <p className="text-sm text-destructive">{delErr}</p>}
-            <button
-              type="button"
-              onClick={doDelete}
-              disabled={delBusy || !delPwd}
-              className="self-start rounded-xl bg-destructive px-4 py-2.5 text-sm font-medium text-destructive-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
-            >
-              {delBusy ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                a.deleteAccountButton
-              )}
-            </button>
-          </div>
-        </SettingRow>
+      <div>
+        <h4 className="mb-1 text-sm font-semibold">{t.settings.updates}</h4>
+        <UpdatesBlock />
       </div>
     </div>
   );
@@ -578,12 +323,7 @@ function AccountSection({ onClose }: { onClose: () => void }) {
  *
  *  Память попадает в промпт каждый ход и влияет на все ответы, поэтому человек
  *  должен видеть её целиком, уметь стереть строку и уметь ВЫКЛЮЧИТЬ запись
- *  вовсе — разговор, о котором не надо помнить, бывает у любого.
- *
- *  Список плоский: личная память принадлежит ЧЕЛОВЕКУ, а не агенту — она одна
- *  на всех. Группировка по владельцам вернётся вместе с пространствами, у
- *  которых будет свой слой; до тех пор владелец ровно один и заголовок над
- *  единственной группой только мешал бы. */
+ *  вовсе — разговор, о котором не надо помнить, бывает у любого. */
 function MemorySection() {
   const t = useT();
   // Владельцы целиком, а не плоский список: личный слой и слои пространств
@@ -626,15 +366,7 @@ function MemorySection() {
     <div className="flex flex-col gap-5">
       <div className="flex flex-col divide-y divide-border">
         <Row label={t.settings.memoryEnabled}>
-          <Segmented
-            layoutId="settings-seg-memory"
-            value={enabled ? "on" : "off"}
-            options={[
-              { id: "on", label: t.settings.memoryOn },
-              { id: "off", label: t.settings.memoryOff },
-            ]}
-            onChange={(v) => toggle(v === "on")}
-          />
+          <Switch checked={enabled} onCheckedChange={toggle} aria-label={t.settings.memoryEnabled} />
         </Row>
       </div>
 
@@ -643,34 +375,6 @@ function MemorySection() {
       </p>
 
       <MemoryGroups owners={owners} onForget={forget} dimmed={!enabled} />
-    </div>
-  );
-}
-
-/** Юридические документы: ссылки на политику и условия. */
-function LegalSection() {
-  const t = useT();
-  const a = t.settings;
-  return (
-    <div className="flex flex-col divide-y divide-border">
-      <Row label={a.legalPrivacy}>
-        <Link
-          href="/privacy"
-          target="_blank"
-          className="text-sm font-medium text-primary hover:underline"
-        >
-          {a.legalOpen}
-        </Link>
-      </Row>
-      <Row label={a.legalTerms}>
-        <Link
-          href="/terms"
-          target="_blank"
-          className="text-sm font-medium text-primary hover:underline"
-        >
-          {a.legalOpen}
-        </Link>
-      </Row>
     </div>
   );
 }
@@ -686,17 +390,18 @@ export function SettingsDialog({
 }) {
   const t = useT();
   const [section, setSection] = React.useState<Section>("general");
-  const [mounted, setMounted] = React.useState(false);
+  // Портал в document.body есть только на клиенте: серверный снимок — «не
+  // смонтировано», клиентский — «смонтировано», без setState в эффекте.
+  const mounted = React.useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
 
-  const sections: { id: Section; label: string; icon: typeof Gauge }[] = [
+  const sections: { id: Section; label: string; icon: typeof Brain }[] = [
     { id: "general", label: t.settings.general, icon: SlidersHorizontal },
     { id: "memory", label: t.settings.memory, icon: Brain },
-    { id: "account", label: t.settings.account, icon: UserIcon },
-    { id: "usage", label: t.settings.usage, icon: Gauge },
-    { id: "legal", label: t.settings.legal, icon: FileText },
   ];
-
-  React.useEffect(() => setMounted(true), []);
 
   React.useEffect(() => {
     if (!open) return;
@@ -786,9 +491,6 @@ export function SettingsDialog({
               </h3>
               {section === "general" && <GeneralSection />}
               {section === "memory" && <MemorySection />}
-              {section === "account" && <AccountSection onClose={onClose} />}
-              {section === "usage" && <UsageSection />}
-              {section === "legal" && <LegalSection />}
             </div>
           </motion.div>
         </div>
