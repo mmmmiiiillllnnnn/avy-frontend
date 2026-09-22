@@ -21,6 +21,7 @@ import {
 import { CreateButton } from "@/components/agents/agents-screen";
 import { Modal } from "@/components/ui/modal";
 import { SelectNative } from "@/components/ui/select-native";
+import { useAgents } from "@/hooks/use-agents";
 import { cn } from "@/lib/utils";
 import { useT } from "@/i18n/i18n-context";
 import { useRecurringTasks } from "@/hooks/use-recurring-tasks";
@@ -111,6 +112,7 @@ export function TaskForm({
     instruction: string;
     schedule: string;
     timezone: string;
+    agent_id: string;
     error_policy: Record<string, unknown>;
   }) => void;
   submitting: boolean;
@@ -123,6 +125,10 @@ export function TaskForm({
   const [savedTitle, setSavedTitle] = React.useState(initial?.title ?? "");
   const [instruction, setInstruction] = React.useState(initial?.instruction ?? "");
   const [tz, setTz] = React.useState(initial?.timezone ?? browserTz());
+  // Агент прогона: пусто — универсальный ассистент. Список — готовые к
+  // работе агенты (те же, что в выборе над полем ввода).
+  const [agentId, setAgentId] = React.useState(initial?.agent_id ?? "");
+  const { agents: libraryAgents } = useAgents();
   // Политика ошибок — свёрнутый блок «Дополнительно»: дефолты разумные, но
   // задача может быть чувствительной к повторам (напр. постинг в канал).
   const initialPolicy = (initial?.error_policy ?? {}) as Record<string, unknown>;
@@ -130,7 +136,6 @@ export function TaskForm({
     Number(initialPolicy.max_retries ?? 2),
   );
   const [backoffS, setBackoffS] = React.useState(Number(initialPolicy.backoff_s ?? 30));
-  const [notify, setNotify] = React.useState(initialPolicy.notify !== false);
   // Секреты — попапом, как на детальном экране задачи (значения чувствительные,
   // держать их развёрнутыми в форме незачем).
   const [secretsOpen, setSecretsOpen] = React.useState(false);
@@ -197,10 +202,10 @@ export function TaskForm({
                 instruction: instruction.trim(),
                 schedule: cron,
                 timezone: tz,
+                agent_id: agentId,
                 error_policy: {
                   max_retries: maxRetries,
                   backoff_s: backoffS,
-                  notify,
                 },
               })
             }
@@ -311,6 +316,18 @@ export function TaskForm({
         </SelectNative>
       </div>
 
+      <div className="flex flex-col gap-1.5">
+        <label className={LABEL}>{rt.agentLabel}</label>
+        <SelectNative value={agentId} onChange={(e) => setAgentId(e.target.value)}>
+          <option value="">{rt.agentDefault}</option>
+          {libraryAgents.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+        </SelectNative>
+      </div>
+
       {/* Поведение при сбое — не свёрнутый «Дополнительно», а живая фраза с
           полями внутри: так видно СМЫСЛ настройки («повторить 2 раза с паузой
           30 с»), а не два безымянных числовых поля. */}
@@ -347,15 +364,6 @@ export function TaskForm({
             </>
           )}
         </div>
-        <label className="flex w-fit cursor-pointer items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground">
-          <input
-            type="checkbox"
-            checked={notify}
-            onChange={(e) => setNotify(e.target.checked)}
-            className="size-4 accent-primary"
-          />
-          {rt.notifyOnError}
-        </label>
       </div>
 
       </div>{/* /левая колонка */}
@@ -1044,6 +1052,7 @@ export function RecurringTasksScreen({
     instruction: string;
     schedule: string;
     timezone: string;
+    agent_id: string;
     error_policy: Record<string, unknown>;
   }) => {
     setSubmitting(true);
