@@ -694,6 +694,8 @@ export type Dictionary = {
     atTime: string;
     onDay: string;
     timezoneLabel: string;
+    agentLabel: string;
+    agentDefault: string;
     instructionLabel: string;
     instructionHint: string;
     instructionPlaceholder: string;
@@ -709,7 +711,6 @@ export type Dictionary = {
     retryTimes: (n: number) => string;
     retryPause: string;
     secondsShort: string;
-    notifyOnError: string;
     secretName: string;
     secretValue: string;
     secretNameHint: string;
@@ -1403,6 +1404,8 @@ const ru: Dictionary = {
     atTime: "в",
     onDay: "по",
     timezoneLabel: "Часовой пояс",
+    agentLabel: "Агент",
+    agentDefault: "Ассистент (по умолчанию)",
     instructionLabel: "Инструкции",
     instructionHint: "Опишите словами, что нужно делать при каждом запуске — как задание человеку.",
     instructionPlaceholder: "Опишите, что должно происходить при каждом запуске…",
@@ -1418,7 +1421,6 @@ const ru: Dictionary = {
     retryTimes: (n: number) => plural(n, "раз", "раза", "раз"),
     retryPause: "с паузой",
     secondsShort: "сек.",
-    notifyOnError: "Уведомлять об ошибках",
     secretName: "DEMO_TOKEN",
     secretValue: "sk-uy324-...",
     secretNameHint: "Имя: латиница в верхнем регистре, цифры и «_». Начинается с буквы.",
@@ -2112,6 +2114,8 @@ const en: Dictionary = {
     atTime: "at",
     onDay: "on",
     timezoneLabel: "Time zone",
+    agentLabel: "Agent",
+    agentDefault: "Assistant (default)",
     instructionLabel: "Instructions",
     instructionHint: "Describe in words what should happen on each run — like a task for a person.",
     instructionPlaceholder: "Describe what should happen on each run…",
@@ -2127,7 +2131,6 @@ const en: Dictionary = {
     retryTimes: (n: number) => (n === 1 ? "time" : "times"),
     retryPause: "with a pause of",
     secondsShort: "sec",
-    notifyOnError: "Notify on errors",
     secretName: "DEMO_TOKEN",
     secretValue: "sk-uy324-...",
     secretNameHint: "Name: uppercase letters, digits and “_”. Must start with a letter.",

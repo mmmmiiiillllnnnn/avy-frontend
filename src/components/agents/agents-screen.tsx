@@ -24,8 +24,12 @@ import * as React from "react";
 import { ArrowUpDown, Bot, Check, ChevronDown, FileCode2, FileText, Folder, FolderOpen, Info, Loader2, Pencil, Plus, Search, SlidersHorizontal, Trash2, UserRound } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { AgentConnectionsButton } from "@/components/agents/agent-connections";
+import { connectionForms } from "@/lib/connection-card";
+import { invalidateAgents } from "@/hooks/use-agents";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { useT } from "@/i18n/i18n-context";
 import { useAgentLibrary } from "@/hooks/use-agents";
@@ -121,17 +125,21 @@ function AgentCard({
   onEdit,
   onToggle,
   onDelete,
+  onConnectionsChanged,
 }: {
   agent: Agent;
   onEdit: () => void;
   onToggle: (enabled: boolean) => void;
   onDelete: () => void;
+  onConnectionsChanged: () => void;
 }) {
   const t = useT();
   const a = t.agents;
   const cfg = agent.config ?? {};
   const model = cfg.model_id as ChatModelId | undefined;
   const effort = cfg.effort as EffortLevel | undefined;
+  const forms = connectionForms(agent.config);
+  const needsConnection = (agent.missing_connections ?? []).length > 0;
 
   return (
     <div
@@ -153,6 +161,7 @@ function AgentCard({
             {agent.description}
           </p>
         )}
+
         {/* Модель и глубину показываем, только если агент их ЗАФИКСИРОВАЛ.
             Пусто = выбор остаётся за человеком в момент разговора. */}
         {(model || effort) && (
@@ -167,6 +176,20 @@ function AgentCard({
                 {EFFORT_LABELS[effort] ?? effort}
               </span>
             )}
+          </div>
+        )}
+        {/* ПОДКЛЮЧЕНИЯ — одна кнопка ПОД ТЕКСТОМ, справа, как «Добавить» у
+            навыка. По конфигу агента: формы лежат в его записи
+            (config.connection_forms), и кнопка есть только у того, кто объявил
+            `connections:`. У остальных ни кнопки, ни запроса. */}
+        {agent.slug && forms.length > 0 && (
+          <div className="mt-2 flex justify-end">
+            <AgentConnectionsButton
+              slug={agent.slug}
+              forms={forms}
+              missing={needsConnection}
+              onChanged={onConnectionsChanged}
+            />
           </div>
         )}
       </div>
@@ -1859,21 +1882,27 @@ function SkillCard({
             </button>
           </>
         )}
-        <button
+        {/* Одна иконка-кнопка на оба действия, она же показывает состояние:
+            серый «+» — не в наборе, зелёная галка — в наборе. Подпись в
+            aria-label и title. */}
+        <Button
           type="button"
+          variant="outline"
+          size="icon-sm"
+          aria-label={added ? a.skillRemove : a.skillAdd}
+          title={added ? a.skillRemove : a.skillAdd}
+          className={cn(
+            added
+              ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300"
+              : "text-muted-foreground hover:text-foreground",
+          )}
           onClick={(e) => {
             e.stopPropagation();
             onAdded?.(skill, !added);
           }}
-          className={cn(
-            "rounded-md border px-2 py-1 text-xs transition-colors",
-            added
-              ? "border-border/60 text-muted-foreground hover:bg-accent hover:text-foreground"
-              : "border-transparent bg-primary/10 text-primary hover:bg-primary/15",
-          )}
         >
-          {added ? a.skillRemove : a.skillAdd}
-        </button>
+          {added ? <Check /> : <Plus />}
+        </Button>
       </div>
     </div>
   );
@@ -2383,6 +2412,10 @@ export function AgentsScreen({
                       }}
                       onToggle={(enabled) => void api.toggle(agent.id, enabled)}
                       onDelete={() => setDeleting(agent)}
+                      onConnectionsChanged={() => {
+                        invalidateAgents();
+                        void api.refresh();
+                      }}
                     />
                   ))}
                 </div>
@@ -2481,6 +2514,10 @@ export function AgentsScreen({
                 }}
                 onToggle={(enabled) => void api.toggle(agent.id, enabled)}
                 onDelete={() => setDeleting(agent)}
+                onConnectionsChanged={() => {
+                  invalidateAgents();
+                  void api.refresh();
+                }}
               />
             ))}
           </div>

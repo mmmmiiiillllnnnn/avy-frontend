@@ -922,6 +922,10 @@ export type Agent = {
   slug: string | null;
   /** Навыки агента. Пусто = набор по умолчанию. */
   skills: string[];
+  /** Виды подключений из конфига агента, которых у человека НЕТ. Непусто —
+   *  агент выключен: сервер не отдаёт его в выбор и не даёт ход; карточка
+   *  показывает «Нужно подключение» и кнопку. */
+  missing_connections: string[];
   /** Когда заведён — для сортировки «сначала новые». */
   created_at: string | null;
 };
@@ -948,6 +952,89 @@ export async function fetchAgents(
   if (!res.ok) throw new Error(String(res.status));
   const data = await res.json();
   return (data.agents ?? []) as Agent[];
+}
+
+/** Одно поле формы подключения. Описание приходит С БЭКЕНДА (конфиг агента),
+ *  поэтому здесь ни одного имени поля и ни одного вида подключения: новый вид
+ *  появляется файлом рядом с агентом и рисуется этим же кодом. */
+export type ConnectionField = {
+  name: string;
+  label: string;
+  /** Секретное: поле пароля, значение НИКОГДА не приходит с сервера обратно. */
+  secret: boolean;
+  required: boolean;
+  hint: string;
+  placeholder: string;
+};
+
+/** Описание формы подключения — приходит В ЗАПИСИ АГЕНТА (config.connection_forms):
+ *  по нему карточка решает, рисовать ли кнопку, не спрашивая сервер. */
+export type ConnectionForm = {
+  /** Вид: им адресуются PUT/DELETE. */
+  kind: string;
+  title: string;
+  description: string;
+  fields: ConnectionField[];
+};
+
+export type AgentConnection = ConnectionForm & {
+  connected: boolean;
+  /** ТОЛЬКО открытые поля — секретов здесь нет по построению (см. бэкенд).
+   *  Ими подписываем «подключено как …» и предзаполняем форму. */
+  values: Record<string, string>;
+  updated_at: string | null;
+};
+
+/** Подключения агента: описание формы + состояние каждого, одним запросом. */
+export async function fetchAgentConnections(
+  slug: string,
+): Promise<AgentConnection[]> {
+  const res = await fetch(
+    `${API_BASE}/api/agents/${encodeURIComponent(slug)}/connections`,
+    { credentials: CREDENTIALS },
+  );
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data.connections ?? []) as AgentConnection[];
+}
+
+/** Подключить или переподключить. Текст ошибки — от бэкенда: он знает, какое
+ *  поле не заполнено и доступно ли хранилище ключей. */
+export async function saveAgentConnection(
+  slug: string,
+  kind: string,
+  values: Record<string, string>,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await fetch(
+    `${API_BASE}/api/agents/${encodeURIComponent(slug)}/connections/${encodeURIComponent(kind)}`,
+    {
+      method: "PUT",
+      credentials: CREDENTIALS,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ values }),
+    },
+  );
+  if (res.ok) return { ok: true };
+  let error = `Ошибка ${res.status}`;
+  try {
+    const data = await res.json();
+    if (typeof data?.detail === "string") error = data.detail;
+  } catch {
+    // Ответ без JSON — оставляем код статуса: он лучше пустого сообщения.
+  }
+  return { ok: false, error };
+}
+
+/** Отключить: сервер удаляет значения вместе с зашифрованным секретом. */
+export async function deleteAgentConnection(
+  slug: string,
+  kind: string,
+): Promise<boolean> {
+  const res = await fetch(
+    `${API_BASE}/api/agents/${encodeURIComponent(slug)}/connections/${encodeURIComponent(kind)}`,
+    { method: "DELETE", credentials: CREDENTIALS },
+  );
+  return res.ok;
 }
 
 /** Навыки, которые можно подключить агенту. Список читается на бэкенде из
@@ -1651,6 +1738,8 @@ export type RecurringTask = {
   draft?: boolean;
   /** Пространство, к которому задача прикреплена (прогоны на его облаке). */
   space_id?: string | null;
+  /** Агент из библиотеки, которым идёт прогон. null — ассистент. */
+  agent_id?: string | null;
 };
 
 export type TaskRun = {
@@ -1679,6 +1768,8 @@ export type CreateTaskInput = {
   // требуют API секретов и вложений (они скоуплены task_id). Черновик скрыт из
   // списка и не идёт по расписанию; «Создать» снимает флаг.
   draft?: boolean;
+  /** Агент из библиотеки, которым идёт прогон. Пусто — ассистент. */
+  agent_id?: string | null;
 };
 
 export type UpdateTaskInput = Partial<{
@@ -1690,6 +1781,8 @@ export type UpdateTaskInput = Partial<{
   error_policy: Record<string, unknown> | null;
   enabled: boolean;
   draft: boolean;
+  /** "" снимает агента (ассистент); id — ставит. */
+  agent_id: string | null;
 }>;
 
 const RT_BASE = `${API_BASE}/api/recurring-tasks`;
