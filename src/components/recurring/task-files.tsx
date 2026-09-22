@@ -51,7 +51,7 @@ function iconFor(mime: string): LucideIcon {
 }
 
 // Рекурсивный обход DataTransferItem (drag-drop папки) → [{file, relPath}].
-async function readDataTransfer(dt: DataTransfer): Promise<TaskUpload[]> {
+export async function readDataTransfer(dt: DataTransfer): Promise<TaskUpload[]> {
   const out: TaskUpload[] = [];
   const items = Array.from(dt.items || []);
   const entries = items
@@ -88,7 +88,7 @@ async function readDataTransfer(dt: DataTransfer): Promise<TaskUpload[]> {
 }
 
 /** Файлы из <input type=file> (в т.ч. webkitdirectory) → [{file, relPath}]. */
-function fromInput(fileList: FileList | null): TaskUpload[] {
+export function fromInput(fileList: FileList | null): TaskUpload[] {
   if (!fileList) return [];
   return Array.from(fileList).map((f) => ({
     file: f,
@@ -749,5 +749,157 @@ export function TaskFiles({
         </div>
       </Modal>
     </div>
+  );
+}
+
+// --- вложения ещё не созданной задачи ------------------------------------------
+
+/**
+ * Вложения, набранные в форме СОЗДАНИЯ задачи. Задачи ещё нет, грузить некуда —
+ * копим у себя, а после сохранения их отправит attachTaskExtras (lib/task-extras).
+ * По виду — тот же блок «Вложения», что у существующей задачи, но без сервера:
+ * список плоский (папка видна по пути), превью и скачивания нет — файл ещё
+ * лежит у человека на диске.
+ */
+export function PendingInputs({
+  files,
+  onChange,
+}: {
+  files: TaskUpload[];
+  onChange: (next: TaskUpload[]) => void;
+}) {
+  const t = useT();
+  const rt = t.recurringTasks;
+  const [dragOver, setDragOver] = React.useState(false);
+  const filesInputRef = React.useRef<HTMLInputElement>(null);
+  const folderInputRef = React.useRef<HTMLInputElement>(null);
+
+  // Тот же путь — тот же файл: повторный выбор заменяет, а не дублирует
+  // (сервер при загрузке перезаписал бы его так же).
+  const add = (more: TaskUpload[]) => {
+    if (more.length === 0) return;
+    const byPath = new Map(files.map((f) => [f.relPath, f]));
+    for (const m of more) byPath.set(m.relPath, m);
+    onChange([...byPath.values()]);
+  };
+  const remove = (relPath: string) => onChange(files.filter((f) => f.relPath !== relPath));
+
+  return (
+    <section className="flex flex-col gap-2">
+      <div className="flex h-7 items-center gap-2">
+        <h3 className="text-sm font-semibold">{rt.inputs}</h3>
+        <div className="ml-auto mr-2.5 flex items-center gap-1 text-muted-foreground">
+          <button
+            type="button"
+            onClick={() => filesInputRef.current?.click()}
+            title={rt.addFiles}
+            className="flex size-6 items-center justify-center rounded-md transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <Upload className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => folderInputRef.current?.click()}
+            title={rt.addFolder}
+            className="flex size-6 items-center justify-center rounded-md transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <FolderUp className="size-4" />
+          </button>
+        </div>
+      </div>
+
+      <input
+        ref={filesInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          add(fromInput(e.target.files));
+          e.target.value = "";
+        }}
+      />
+      <input
+        ref={folderInputRef}
+        type="file"
+        multiple
+        // @ts-expect-error нестандартные атрибуты выбора папки
+        webkitdirectory=""
+        directory=""
+        className="hidden"
+        onChange={(e) => {
+          add(fromInput(e.target.files));
+          e.target.value = "";
+        }}
+      />
+
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={async (e) => {
+          e.preventDefault();
+          setDragOver(false);
+          add(await readDataTransfer(e.dataTransfer));
+        }}
+        className={cn(
+          "h-[248px] overflow-y-auto rounded-xl border p-3 transition-colors",
+          dragOver ? "border-primary/60 bg-primary/5" : "border-border",
+        )}
+      >
+        {files.length === 0 ? (
+          <EmptyState
+            icon={<FolderUp />}
+            title={rt.noInputs}
+            description={rt.dropHere}
+            action={
+              <>
+                <button
+                  type="button"
+                  onClick={() => filesInputRef.current?.click()}
+                  className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted"
+                >
+                  <Upload className="size-3.5" /> {rt.addFiles}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => folderInputRef.current?.click()}
+                  className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted"
+                >
+                  <FolderUp className="size-3.5" /> {rt.addFolder}
+                </button>
+              </>
+            }
+          />
+        ) : (
+          <div className="flex flex-col">
+            {files.map((f) => {
+              const Icon = iconFor(f.file.type || "");
+              return (
+                <div
+                  key={f.relPath}
+                  className="group flex items-center gap-1.5 rounded-md py-1 pl-1 pr-1 text-sm"
+                >
+                  <Icon className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="truncate">{f.relPath}</span>
+                  <span className="text-[10px] text-muted-foreground">{humanSize(f.file.size)}</span>
+                  <button
+                    type="button"
+                    onClick={() => remove(f.relPath)}
+                    title={t.files.deleteFile}
+                    aria-label={t.files.deleteFile}
+                    className="ml-auto flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-[opacity,color,background-color] hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
+                  >
+                    <Trash2 className="size-4" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      <span className="text-[11px] text-muted-foreground">{rt.pendingSaveHint}</span>
+    </section>
   );
 }

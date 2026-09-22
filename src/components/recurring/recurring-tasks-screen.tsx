@@ -26,7 +26,6 @@ import { cn } from "@/lib/utils";
 import { useT } from "@/i18n/i18n-context";
 import { useRecurringTasks } from "@/hooks/use-recurring-tasks";
 import {
-  createRecurringTask,
   listTaskRuns,
   deleteTaskRun,
   listTaskSecrets,
@@ -35,7 +34,13 @@ import {
   type RecurringTask,
   type TaskRun,
   type SecretMeta,
+  type TaskUpload,
 } from "@/lib/api";
+import {
+  attachTaskExtras,
+  type PendingSecret,
+  type TaskExtras,
+} from "@/lib/task-extras";
 import {
   type ScheduleSpec,
   specToCron,
@@ -44,7 +49,7 @@ import {
   MINUTE_STEPS,
   HOUR_STEPS,
 } from "@/lib/schedule";
-import { TaskFiles } from "@/components/recurring/task-files";
+import { PendingInputs, TaskFiles } from "@/components/recurring/task-files";
 
 const FIELD =
   "w-full rounded-lg border border-border bg-foreground/5 px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary/60 focus:bg-primary/5";
@@ -99,26 +104,34 @@ export function TaskForm({
   onCancel,
   onSubmit,
   submitting,
+  error,
 }: {
   initial?: RecurringTask;
-  // id задачи, к которой привязаны секреты и вложения. При редактировании —
-  // id самой задачи; при создании — id ЧЕРНОВИКА (задача уже существует на
-  // сервере, но скрыта и не запускается). Пока черновик не готов — undefined,
-  // и секции секретов/вложений показываются неактивными.
+  // id СУЩЕСТВУЮЩЕЙ задачи: секреты и вложения идут сразу на сервер. При
+  // создании его нет — задачи ещё не существует, и форма копит секреты и
+  // вложения у себя (extras), а сохранение привязывает их к созданной задаче.
   taskId?: string;
   onCancel: () => void;
-  onSubmit: (input: {
-    title: string;
-    instruction: string;
-    schedule: string;
-    timezone: string;
-    agent_id: string;
-    error_policy: Record<string, unknown>;
-  }) => void;
+  onSubmit: (
+    input: {
+      title: string;
+      instruction: string;
+      schedule: string;
+      timezone: string;
+      agent_id: string;
+      error_policy: Record<string, unknown>;
+    },
+    extras: TaskExtras,
+  ) => void;
   submitting: boolean;
+  /** Что не так с прошлым сохранением — показывается над формой. */
+  error?: string | null;
 }) {
   const t = useT();
   const rt = t.recurringTasks;
+  // Набранное до сохранения (только при создании, см. taskId).
+  const [pendingSecrets, setPendingSecrets] = React.useState<PendingSecret[]>([]);
+  const [pendingFiles, setPendingFiles] = React.useState<TaskUpload[]>([]);
   const [title, setTitle] = React.useState(initial?.title ?? "");
   // Название, вынесенное в заголовок формы. Обновляем по уходу из поля (blur),
   // а не на каждый символ — иначе заголовок дёргался бы при наборе.
@@ -160,12 +173,12 @@ export function TaskForm({
   return (
     <div className="min-h-0 flex-1 overflow-auto">
       <div className="flex w-full flex-col gap-5 p-6">
-        {/* Задачу подготовил ассистент в разговоре — объясняем, что она ещё не
-            работает и что сохранение её запустит. Иначе заполненная форма
-            выглядит как уже действующая задача. */}
-        {initial?.draft && (
-          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
-            {rt.draftConfirmHint}
+        {error && (
+          <div
+            role="alert"
+            className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+          >
+            {error}
           </div>
         )}
         {/* Кнопка «назад» — в ХЕДЕРЕ воркспейса. Действия формы — здесь же, в
@@ -176,16 +189,19 @@ export function TaskForm({
           <h1 className="min-w-0 flex-1 truncate text-xl font-semibold">
             {savedTitle || (initial ? rt.edit : rt.create)}
           </h1>
-          {taskId && (
-            <button
-              type="button"
-              onClick={() => setSecretsOpen(true)}
-              className="flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors hover:bg-muted"
-            >
-              <KeyRound className="size-4" />
-              {rt.secrets}
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => setSecretsOpen(true)}
+            className="flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors hover:bg-muted"
+          >
+            <KeyRound className="size-4" />
+            {rt.secrets}
+            {!taskId && pendingSecrets.length > 0 && (
+              <span className="rounded-full bg-primary/10 px-1.5 text-[11px] text-primary">
+                {pendingSecrets.length}
+              </span>
+            )}
+          </button>
           <button
             type="button"
             onClick={onCancel}
@@ -197,17 +213,20 @@ export function TaskForm({
             type="button"
             disabled={!canSave}
             onClick={() =>
-              onSubmit({
-                title: title.trim(),
-                instruction: instruction.trim(),
-                schedule: cron,
-                timezone: tz,
-                agent_id: agentId,
-                error_policy: {
-                  max_retries: maxRetries,
-                  backoff_s: backoffS,
+              onSubmit(
+                {
+                  title: title.trim(),
+                  instruction: instruction.trim(),
+                  schedule: cron,
+                  timezone: tz,
+                  agent_id: agentId,
+                  error_policy: {
+                    max_retries: maxRetries,
+                    backoff_s: backoffS,
+                  },
                 },
-              })
+                { secrets: pendingSecrets, files: pendingFiles },
+              )
             }
             className="shrink-0 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40"
           >
@@ -382,31 +401,31 @@ export function TaskForm({
 
         {/* Вложения — под инструкцией. Артефактов тут нет намеренно: это
             результаты прогонов, у создаваемой задачи их не существует. */}
-        {taskId ? (
-          <div className="mt-3">
+        <div className="mt-3">
+          {taskId ? (
             <TaskFiles taskId={taskId} showOutputs={false} />
-          </div>
-        ) : (
-          <div className="mt-3 rounded-lg border border-dashed border-border p-4 text-xs text-muted-foreground">
-            {rt.draftPreparing}
-          </div>
-        )}
+          ) : (
+            <PendingInputs files={pendingFiles} onChange={setPendingFiles} />
+          )}
+        </div>
       </div>
 
       </div>{/* /две колонки */}
 
       </div>
 
-      {taskId && (
-        <Modal
-          open={secretsOpen}
-          onClose={() => setSecretsOpen(false)}
-          title={rt.secrets}
-          className="max-w-xl"
-        >
+      <Modal
+        open={secretsOpen}
+        onClose={() => setSecretsOpen(false)}
+        title={rt.secrets}
+        className="max-w-xl"
+      >
+        {taskId ? (
           <SecretsPanel taskId={taskId} />
-        </Modal>
-      )}
+        ) : (
+          <SecretsPanel pending={{ items: pendingSecrets, onChange: setPendingSecrets }} />
+        )}
+      </Modal>
     </div>
   );
 }
@@ -433,9 +452,23 @@ function normalizeSecretName(raw: string): string {
     .replace(/[^A-Z0-9_]/g, "");
 }
 
-function SecretsPanel({ taskId }: { taskId: string }) {
+/**
+ * Секреты задачи. Два режима с одним видом:
+ *  - taskId — задача существует, значения уходят на сервер сразу;
+ *  - pending — форма СОЗДАНИЯ: задачи ещё нет, пары копятся у формы и
+ *    привязываются после сохранения (attachTaskExtras). Валидацию имени сервер
+ *    сделает тогда же; здесь — та же нормализация, что и в первом режиме.
+ */
+function SecretsPanel({
+  taskId,
+  pending,
+}: {
+  taskId?: string;
+  pending?: { items: PendingSecret[]; onChange: (items: PendingSecret[]) => void };
+}) {
   const t = useT();
   const rt = t.recurringTasks;
+  const local = !taskId;
   const [secrets, setSecrets] = React.useState<SecretMeta[] | null>(null);
   const [name, setName] = React.useState("");
   const [value, setValue] = React.useState("");
@@ -443,16 +476,28 @@ function SecretsPanel({ taskId }: { taskId: string }) {
   const [error, setError] = React.useState<string | null>(null);
 
   const reload = React.useCallback(() => {
+    if (!taskId) return;
     listTaskSecrets(taskId).then(setSecrets);
   }, [taskId]);
   React.useEffect(reload, [reload]);
 
+  // Что показываем: набранное (создание) либо имена с сервера (правка).
+  const shown: { key: string }[] | null = local ? (pending?.items ?? []) : secrets;
+
   const add = async () => {
     if (!name.trim() || !value.trim()) return;
+    if (local) {
+      const key = name.trim();
+      const rest = (pending?.items ?? []).filter((s) => s.key !== key);
+      pending?.onChange([...rest, { key, value }]);
+      setName("");
+      setValue("");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      await setTaskSecret(taskId, name.trim(), value);
+      await setTaskSecret(taskId!, name.trim(), value);
       setName("");
       setValue("");
       reload();
@@ -469,20 +514,27 @@ function SecretsPanel({ taskId }: { taskId: string }) {
   };
 
   const remove = async (key: string) => {
-    await deleteTaskSecret(taskId, key);
+    if (local) {
+      pending?.onChange((pending?.items ?? []).filter((s) => s.key !== key));
+      return;
+    }
+    await deleteTaskSecret(taskId!, key);
     reload();
   };
 
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-xs text-muted-foreground">{rt.secretsHint}</p>
+      <p className="text-xs text-muted-foreground">
+        {rt.secretsHint}
+        {local && ` ${rt.pendingSaveHint}`}
+      </p>
       <div className="flex flex-col gap-2">
-        {secrets === null ? (
+        {shown === null ? (
           <div className="text-xs text-muted-foreground">{t.files.loading}</div>
-        ) : secrets.length === 0 ? (
+        ) : shown.length === 0 ? (
           <div className="text-xs text-muted-foreground">{rt.noSecrets}</div>
         ) : (
-          secrets.map((s) => (
+          shown.map((s) => (
             <div
               key={s.key}
               className="flex items-center gap-2 rounded-lg border bg-background/40 px-3 py-2"
@@ -928,20 +980,11 @@ function TaskCard({
         <span className="truncate text-sm font-medium">{task.title}</span>
         <span className="truncate text-xs text-muted-foreground">{humanSchedule(spec, t)}</span>
       </div>
-      {last && !task.draft && <last.Icon className={cn("size-4 shrink-0", last.cls)} />}
-      {/* Черновик — задача, созданная агентом в разговоре: заполнена, но ждёт
-          подтверждения человека. Помечаем акцентом, а не серым «выключена»:
-          это не состояние покоя, а требование действия. */}
-      {task.draft ? (
-        <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
-          {rt.draftBadge}
+      {last && <last.Icon className={cn("size-4 shrink-0", last.cls)} />}
+      {!task.enabled && (
+        <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+          {rt.disabled}
         </span>
-      ) : (
-        !task.enabled && (
-          <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-            {rt.disabled}
-          </span>
-        )
       )}
       <ChevronRight className="size-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
     </button>
@@ -980,8 +1023,9 @@ export function RecurringTasksScreen({
   const [formOpen, setFormOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<RecurringTask | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
-  // «Активные» — работающие задачи и черновики (ждут действия), «Архив» — выключенные.
+  // «Активные» — работающие задачи, «Архив» — выключенные.
   const [tab, setTab] = React.useState<"active" | "archive">("active");
+  const [formError, setFormError] = React.useState<string | null>(null);
 
   // Возврат «К задаче» из прогона: открываем сразу её детальный экран.
   React.useEffect(() => {
@@ -1005,81 +1049,54 @@ export function RecurringTasksScreen({
 
   const selected = api.tasks.find((x) => x.id === selectedId) ?? null;
 
-  // Черновик от ассистента — не «выключенная» задача, а ожидание действия:
-  // держим его в «Активных», в архив уходят только явно выключенные.
-  const visible = api.tasks.filter((task) =>
-    tab === "active" ? task.enabled || task.draft : !task.enabled && !task.draft,
-  );
+  const visible = api.tasks.filter((task) => (tab === "active" ? task.enabled : !task.enabled));
 
-  // Черновик новой задачи: создаётся на сервере СРАЗУ при открытии формы, чтобы
-  // у неё был id. Без id нельзя задать ни секреты, ни вложения — их API
-  // скоуплены task_id, а разрешать запись для несуществующей задачи нельзя:
-  // проверка «задача есть и она моя» — единственное, что защищает чужие
-  // секреты (в хранилище владелец не проверяется).
-  //
-  // Черновик скрыт из списка и не идёт по расписанию; «Создать» снимает флаг,
-  // а брошенный (форму закрыли) подчистит purge_stale_drafts на бэкенде.
-  const [draftId, setDraftId] = React.useState<string | null>(null);
-  const draftIdRef = React.useRef<string | null>(null);
-  draftIdRef.current = draftId;
-
-  const openCreateForm = React.useCallback(async () => {
+  // Черновиков нет: задача рождается при сохранении формы. Секреты и вложения,
+  // набранные до этого, форма держит у себя и привязывает следом (extras).
+  const openCreateForm = React.useCallback(() => {
     setEditing(null);
-    setDraftId(null);
+    setFormError(null);
     setFormOpen(true);
-    try {
-      const draft = await createRecurringTask({
-        title: "",
-        schedule: "",
-        instruction: "",
-        timezone: browserTz(),
-        draft: true,
-      });
-      setDraftId(draft.id);
-    } catch {
-      /* без черновика форма всё равно работает — просто без секретов/файлов */
-    }
   }, []);
 
   const closeForm = React.useCallback(() => {
     setFormOpen(false);
     setEditing(null);
-    setDraftId(null);
+    setFormError(null);
   }, []);
 
-  const submit = async (input: {
-    title: string;
-    instruction: string;
-    schedule: string;
-    timezone: string;
-    agent_id: string;
-    error_policy: Record<string, unknown>;
-  }) => {
+  const submit = async (
+    input: {
+      title: string;
+      instruction: string;
+      schedule: string;
+      timezone: string;
+      agent_id: string;
+      error_policy: Record<string, unknown>;
+    },
+    extras: TaskExtras,
+  ) => {
     setSubmitting(true);
+    setFormError(null);
     try {
       if (editing) {
-        // Если правим ЧЕРНОВИК (задачу, подготовленную ассистентом в
-        // разговоре), сохранение = подтверждение: снимаем флаг и включаем.
-        // Без этого задача осталась бы черновиком навсегда и никогда бы не
-        // запустилась, сколько её ни сохраняй.
-        await api.update(
-          editing.id,
-          editing.draft ? { ...input, draft: false, enabled: true } : input,
-        );
-      } else if (draftIdRef.current) {
-        // Черновик уже существует (вместе с его секретами и вложениями) —
-        // сохранение просто дописывает поля и снимает флаг: задача появляется
-        // в списке и встаёт в очередь планировщика.
-        await api.update(draftIdRef.current, { ...input, draft: false, enabled: true });
-        setSelectedId(draftIdRef.current);
-      } else {
-        // Черновик не создался (сеть/ошибка) — обычный путь создания.
-        const created = await api.create(input);
-        setSelectedId(created.id);
+        await api.update(editing.id, input);
+        closeForm();
+        return;
       }
+      const created = await api.create(input);
+      const problems = await attachTaskExtras(created.id, extras);
+      if (problems.length > 0) {
+        // Задача уже есть — переводим форму в правку ЕЁ, с объяснением, что
+        // не прикрепилось: молча закрыть значило бы потерять введённый секрет.
+        setEditing(created);
+        setFormError(rt.createdWithProblems(problems.join("; ")));
+        return;
+      }
+      setSelectedId(created.id);
       closeForm();
     } catch {
-      /* ошибка сохранения — форма остаётся открытой */
+      setFormError(rt.saveFailed);
     } finally {
       setSubmitting(false);
     }
@@ -1092,8 +1109,9 @@ export function RecurringTasksScreen({
     return (
       <TaskForm
         initial={editing ?? undefined}
-        taskId={editing?.id ?? draftId ?? undefined}
+        taskId={editing?.id}
         submitting={submitting}
+        error={formError}
         onCancel={closeForm}
         onSubmit={submit}
       />
@@ -1178,19 +1196,7 @@ export function RecurringTasksScreen({
               <TaskCard
                 key={task.id}
                 task={task}
-                // Черновик (задача от ассистента) ждёт подтверждения — открываем
-                // сразу форму, где её можно проверить, дополнить секретами и
-                // сохранить. Детальный экран для неё бессмыслен: там история
-                // прогонов, которых ещё не было.
-                onOpen={() => {
-                  if (task.draft) {
-                    setEditing(task);
-                    setDraftId(null);
-                    setFormOpen(true);
-                  } else {
-                    setSelectedId(task.id);
-                  }
-                }}
+                onOpen={() => setSelectedId(task.id)}
               />
             ))}
           </div>

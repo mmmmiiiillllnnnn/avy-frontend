@@ -73,6 +73,7 @@ import {
   type SpaceTask,
   type ThreadInfo,
 } from "@/lib/api";
+import { attachTaskExtras, type TaskExtras } from "@/lib/task-extras";
 import { useT } from "@/i18n/i18n-context";
 
 /** Клиентский id треда — тот же формат, что у обычных чатов (use-threads). */
@@ -365,9 +366,12 @@ function SpaceConfig({
   const [skillError, setSkillError] = React.useState<string | null>(null);
   const [agentFormOpen, setAgentFormOpen] = React.useState(false);
   const [agentBusy, setAgentBusy] = React.useState(false);
-  // Задача: единая форма (TaskForm из раздела задач) + черновик, как там же.
+  // Задача: единая форма (TaskForm из раздела задач). Черновиков нет — задача
+  // рождается при сохранении; если что-то из набранного к ней не прикрепилось,
+  // форма остаётся открытой уже как правка СОЗДАННОЙ задачи (taskCreated).
   const [taskFormOpen, setTaskFormOpen] = React.useState(false);
-  const [taskDraftId, setTaskDraftId] = React.useState<string | null>(null);
+  const [taskCreated, setTaskCreated] = React.useState<RecurringTask | null>(null);
+  const [taskFormError, setTaskFormError] = React.useState<string | null>(null);
   const [taskSubmitting, setTaskSubmitting] = React.useState(false);
 
   const reloadSkills = React.useCallback(() => {
@@ -479,56 +483,56 @@ function SpaceConfig({
 
   // ── Задачи ──
   const attachedTaskIds = (spaceTasks ?? []).map((task) => task.id);
-  // Свободные для подключения: не черновики и не прикреплённые к другому
-  // пространству.
+  // Свободные для подключения: не прикреплённые к другому пространству.
   const freeTasks = allTasks.filter(
-    (task) => !task.draft && (!task.space_id || task.space_id === space.id),
+    (task) => !task.space_id || task.space_id === space.id,
   );
 
-  const openTaskCreate = async () => {
+  const openTaskCreate = () => {
+    setTaskCreated(null);
+    setTaskFormError(null);
     setTaskFormOpen(true);
-    setTaskDraftId(null);
-    try {
-      // Черновик — как в разделе задач: id нужен API секретов и вложений.
-      const draft = await createRecurringTask({
-        title: "",
-        schedule: "",
-        instruction: "",
-        draft: true,
-      });
-      // Сразу привязываем к пространству: прогоны пойдут на его облаке.
-      await attachSpaceTask(space.id, draft.id);
-      setTaskDraftId(draft.id);
-    } catch {
-      /* без черновика форма всё равно работает — просто без секретов/файлов */
-    }
   };
 
-  const submitTask = async (input: {
-    title: string;
-    instruction: string;
-    schedule: string;
-    timezone: string;
-    error_policy: Record<string, unknown>;
-  }) => {
+  const closeTaskForm = () => {
+    setTaskFormOpen(false);
+    setTaskCreated(null);
+    setTaskFormError(null);
+    onTasksChanged();
+  };
+
+  const submitTask = async (
+    input: {
+      title: string;
+      instruction: string;
+      schedule: string;
+      timezone: string;
+      agent_id: string;
+      error_policy: Record<string, unknown>;
+    },
+    extras: TaskExtras,
+  ) => {
     setTaskSubmitting(true);
+    setTaskFormError(null);
     try {
-      if (taskDraftId) {
-        await updateRecurringTask(taskDraftId, {
-          ...input,
-          draft: false,
-          enabled: true,
-        });
-      } else {
-        // Черновик не создался (сеть) — обычное создание + привязка.
-        const created = await createRecurringTask(input);
-        await onAttachTask(created.id);
+      if (taskCreated) {
+        await updateRecurringTask(taskCreated.id, input);
+        closeTaskForm();
+        return;
       }
-      onTasksChanged();
-      setTaskFormOpen(false);
-      setTaskDraftId(null);
+      // Создание + привязка к пространству (прогоны пойдут на его облаке),
+      // затем набранные секреты и вложения — к уже существующей задаче.
+      const created = await createRecurringTask(input);
+      await onAttachTask(created.id);
+      const problems = await attachTaskExtras(created.id, extras);
+      if (problems.length > 0) {
+        setTaskCreated(created);
+        setTaskFormError(t.recurringTasks.createdWithProblems(problems.join("; ")));
+        return;
+      }
+      closeTaskForm();
     } catch {
-      /* ошибка сохранения — форма остаётся открытой */
+      setTaskFormError(t.recurringTasks.saveFailed);
     } finally {
       setTaskSubmitting(false);
     }
@@ -538,13 +542,11 @@ function SpaceConfig({
   if (taskFormOpen) {
     return (
       <TaskForm
-        taskId={taskDraftId ?? undefined}
+        initial={taskCreated ?? undefined}
+        taskId={taskCreated?.id}
         submitting={taskSubmitting}
-        onCancel={() => {
-          setTaskFormOpen(false);
-          setTaskDraftId(null);
-          onTasksChanged();
-        }}
+        error={taskFormError}
+        onCancel={closeTaskForm}
         onSubmit={submitTask}
       />
     );

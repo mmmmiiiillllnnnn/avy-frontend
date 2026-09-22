@@ -107,7 +107,7 @@ export function SidebarSessions({
       if (onOpenTask) {
         void listRecurringTasks()
           .then((list) => {
-            if (!cancelled) setTasks(list.filter((task) => !task.draft));
+            if (!cancelled) setTasks(list);
           })
           .catch(() => {});
       }

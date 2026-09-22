@@ -46,20 +46,15 @@ export function useRecurringTasks() {
 
   const create = useCallback(async (input: CreateTaskInput) => {
     const task = await createRecurringTask(input);
-    // Пустую заготовку формы (draft при её открытии) в список НЕ кладём —
-    // висела бы безымянной карточкой. Она попадёт туда при сохранении, через
-    // update(draft:false). Задачу от ассистента сервер отдаёт уже заполненной.
-    setTasks((prev) => (task.draft && !task.title ? prev : [task, ...prev]));
+    setTasks((prev) => [task, ...prev]);
     return task;
   }, []);
 
   const update = useCallback(async (id: string, input: UpdateTaskInput) => {
     const task = await updateRecurringTask(id, input);
     setTasks((prev) =>
-      // Задачи может НЕ БЫТЬ в списке: форма создаёт её черновиком (он скрыт),
-      // а «Сохранить» — это update(draft:false). Прежний map() в таком случае
-      // просто ничего не находил, и созданная задача не появлялась до
-      // перезагрузки страницы. Нет в списке — добавляем.
+      // Задачи может не быть в списке (создана в другом разделе до
+      // перечитывания) — тогда добавляем, а не теряем.
       prev.some((t) => t.id === id)
         ? prev.map((t) => (t.id === id ? task : t))
         : [task, ...prev],

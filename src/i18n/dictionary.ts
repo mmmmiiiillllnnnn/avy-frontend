@@ -633,9 +633,10 @@ export type Dictionary = {
     cancel: string;
     secrets: string;
     secretsHint: string;
-    draftPreparing: string;
-    draftBadge: string;
-    draftConfirmHint: string;
+    /** Форма создания: секреты и вложения привязываются после сохранения. */
+    pendingSaveHint: string;
+    createdWithProblems: (problems: string) => string;
+    saveFailed: string;
     onFailure: string;
     retryPrefix: string;
     retryTimes: (n: number) => string;
@@ -1276,9 +1277,10 @@ const ru: Dictionary = {
     cancel: "Отмена",
     secrets: "Секреты",
     secretsHint: "Токены и ключи для доступа к внешним сервисам. Значения хранятся зашифрованно и никогда не показываются.",
-    draftPreparing: "Готовим задачу — секреты и вложения можно будет добавить через мгновение.",
-    draftBadge: "черновик",
-    draftConfirmHint: "Задачу подготовил ассистент. Проверьте расписание и инструкцию, добавьте секреты — и сохраните, чтобы она начала работать.",
+    pendingSaveHint: "Сохранится вместе с задачей.",
+    createdWithProblems: (problems) =>
+      `Задача создана, но не всё прикрепилось: ${problems}. Добавьте это здесь ещё раз.`,
+    saveFailed: "Не удалось сохранить задачу. Попробуйте ещё раз.",
     onFailure: "Если запуск не удался",
     retryPrefix: "повторить",
     retryTimes: (n: number) => plural(n, "раз", "раза", "раз"),
@@ -1918,9 +1920,10 @@ const en: Dictionary = {
     cancel: "Cancel",
     secrets: "Secrets",
     secretsHint: "Tokens and keys for accessing external services. Values are stored encrypted and never shown.",
-    draftPreparing: "Preparing the task — secrets and attachments will be available in a moment.",
-    draftBadge: "draft",
-    draftConfirmHint: "The assistant prepared this task. Check the schedule and instruction, add any secrets, then save it to put it live.",
+    pendingSaveHint: "Saved together with the task.",
+    createdWithProblems: (problems) =>
+      `The task was created, but some items didn't attach: ${problems}. Add them here again.`,
+    saveFailed: "Couldn't save the task. Try again.",
     onFailure: "If a run fails",
     retryPrefix: "retry",
     retryTimes: (n: number) => (n === 1 ? "time" : "times"),

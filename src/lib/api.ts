@@ -1710,7 +1710,6 @@ export type RecurringTask = {
   last_status: string | null; // ok | error | running
   next_run_at: string | null;
   created_at: string;
-  draft?: boolean;
   /** Пространство, к которому задача прикреплена (прогоны на его облаке). */
   space_id?: string | null;
   /** Агент из библиотеки, которым идёт прогон. null — ассистент. */
@@ -1739,10 +1738,6 @@ export type CreateTaskInput = {
   agent_config?: Record<string, unknown>;
   error_policy?: Record<string, unknown> | null;
   enabled?: boolean;
-  // Черновик — задача создаётся при ОТКРЫТИИ формы, чтобы у неё был id: его
-  // требуют API секретов и вложений (они скоуплены task_id). Черновик скрыт из
-  // списка и не идёт по расписанию; «Создать» снимает флаг.
-  draft?: boolean;
   /** Агент из библиотеки, которым идёт прогон. Пусто — ассистент. */
   agent_id?: string | null;
 };
@@ -1755,7 +1750,6 @@ export type UpdateTaskInput = Partial<{
   agent_config: Record<string, unknown>;
   error_policy: Record<string, unknown> | null;
   enabled: boolean;
-  draft: boolean;
   /** "" снимает агента (ассистент); id — ставит. */
   agent_id: string | null;
 }>;
