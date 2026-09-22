@@ -6,8 +6,6 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { ChatWorkspace } from "@/components/chat/chat-workspace";
 import { AuthGate } from "@/components/auth/auth-gate";
 import { EntryPrompts } from "@/components/chat/entry-prompts";
-import { SupportDialog } from "@/components/chat/support-screen";
-import { fetchUnreadTickets } from "@/lib/api";
 import { MODES } from "@/components/sidebar-modes";
 import { useThreads } from "@/hooks/use-threads";
 
@@ -34,17 +32,6 @@ export default function Home() {
   // конкретное пространство (стрелка ↗ на папке в сайдбаре).
   const [spacesOpen, setSpacesOpen] = useState(false);
   const [openSpaceId, setOpenSpaceId] = useState<string | null>(null);
-  // Полноэкранный раздел «Обратная связь» (аналогично двум выше).
-  const [supportOpen, setSupportOpen] = useState(false);
-  // Обращений с непрочитанным ответом — бейдж в сайдбаре. Считается на сервере;
-  // здесь только зеркалим и обновляем после действий в разделе.
-  const [unreadSupport, setUnreadSupport] = useState(0);
-
-  const refreshUnread = useCallback(() => {
-    void fetchUnreadTickets().then(setUnreadSupport);
-  }, []);
-
-  useEffect(() => refreshUnread(), [refreshUnread]);
 
   // Обёртка sessions для САЙДБАРА: выбор сессии дополнительно закрывает
   // полноэкранные разделы («Файлы», «Задачи», «Мои агенты»). Без этого клик по
@@ -83,13 +70,6 @@ export default function Home() {
       {/* Приветствие выданной роли и опрос по окончании периода. Внутри
           AuthGate: оба долга привязаны к пользователю, гостю показывать нечего. */}
       <EntryPrompts />
-      {/* Обратная связь — диалог поверх интерфейса (как настройки), открывается
-          из меню пользователя внизу сайдбара. */}
-      <SupportDialog
-        open={supportOpen}
-        onClose={() => setSupportOpen(false)}
-        onUnreadChange={refreshUnread}
-      />
       <SidebarProvider
         style={{ "--sidebar-width": "19rem", height: "100%" } as React.CSSProperties}
       >
@@ -103,8 +83,6 @@ export default function Home() {
           onOpenAgents={() => { setAllFilesOpen(false); setTasksOpen(false); setSpacesOpen(false); setAgentsOpen(true); }}
           onOpenSpaces={() => { setAllFilesOpen(false); setTasksOpen(false); setAgentsOpen(false); setSpacesOpen(true); }}
           onOpenSpace={(id) => { setAllFilesOpen(false); setTasksOpen(false); setAgentsOpen(false); setOpenSpaceId(id); setSpacesOpen(true); }}
-          onOpenSupport={() => setSupportOpen(true)}
-          unreadSupport={unreadSupport}
         />
         <SidebarInset className="h-svh min-h-0 overflow-hidden !bg-transparent shadow-none">
           <ChatWorkspace

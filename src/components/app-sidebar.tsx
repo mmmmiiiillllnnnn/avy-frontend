@@ -29,8 +29,6 @@ export function AppSidebar({
   onOpenAgents,
   onOpenSpaces,
   onOpenSpace,
-  onOpenSupport,
-  unreadSupport,
   ...props
 }: React.ComponentProps<typeof Sidebar> & {
   mode?: string
@@ -49,9 +47,7 @@ export function AppSidebar({
   /** Открыть детальный экран конкретного пространства (↗ на папке в списке). */
   onOpenSpace?: (spaceId: string) => void
   /** Открыть диалог «Обратная связь» (пункт в меню пользователя внизу). */
-  onOpenSupport?: () => void
   /** Обращений с непрочитанным ответом — бейдж в меню пользователя. */
-  unreadSupport?: number
 }) {
   const [localMode, setLocalMode] = React.useState<string>(MODES[0].id)
   const value = mode ?? localMode
@@ -131,7 +127,7 @@ export function AppSidebar({
           onOpenSpace={onOpenSpace}
         />
       </SidebarContent>
-      <SidebarUser onOpenSupport={onOpenSupport} unreadSupport={unreadSupport} />
+      <SidebarUser />
     </Sidebar>
   )
 }

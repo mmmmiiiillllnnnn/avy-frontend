@@ -8,7 +8,6 @@ import {
   Moon,
   Sun,
   Globe,
-  MessageSquareHeart,
   type LucideIcon,
 } from "lucide-react";
 import { useTheme } from "next-themes";
@@ -137,22 +136,14 @@ function LangSwitch({
 
 /**
  * Нижний блок сайдбара: плашка пользователя (аватар + имя и почта под ним) и
- * рядом — отдельная кнопка обратной связи. По клику на плашку вверх выезжает
+ * По клику на плашку вверх выезжает
  * меню: Настройки, Тема, Язык, Выход.
  *
  * Имя и почта стоят на самой плашке, а не в шапке меню, — видно, под каким
  * аккаунтом работаешь, не открывая его. Шеврона нет: кликабельность показывает
  * подсветка на ховере.
  */
-export function SidebarUser({
-  onOpenSupport,
-  unreadSupport = 0,
-}: {
-  /** Открыть раздел «Обратная связь» (полноэкранный, как «Задачи»). */
-  onOpenSupport?: () => void;
-  /** Обращений с непрочитанным ответом — точка на кнопке обратной связи. */
-  unreadSupport?: number;
-} = {}) {
+export function SidebarUser() {
   const [open, setOpen] = React.useState(false);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const rootRef = React.useRef<HTMLDivElement>(null);
@@ -335,33 +326,6 @@ export function SidebarUser({
               </span>
             </button>
 
-            {/* Обратная связь — СВОЯ кнопка, а не пункт внутри меню: за ответом
-                приходят, когда он пришёл, и прятать её за два клика значит
-                прятать единственный канал до нас. Квадратная, по высоте плашки;
-                подпись — в title, чтобы не отнимать ширину у почты. */}
-            <button
-              type="button"
-              onClick={onOpenSupport}
-              title={t.support.title}
-              aria-label={t.support.title}
-              className={cn(
-                // self-stretch: высоту кнопка берёт у СОСЕДНЕЙ ПЛАШКИ, а не
-                // задаёт своим числом — с жёстким size-7 она была 28px против
-                // её 36 и висела утопленной в строке. Ширина w-9 (36px) под
-                // ту же высоту: aspect-square здесь схлопывался, потому что
-                // flex сжимает элемент без явной ширины.
-                "relative flex w-9 shrink-0 self-stretch items-center justify-center rounded-lg outline-none transition-colors",
-                "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                "focus-visible:ring-2 focus-visible:ring-sidebar-ring",
-              )}
-            >
-              <MessageSquareHeart className="size-4" />
-              {/* Пришёл ответ — точка на самой кнопке: теперь она на виду, и
-                  прежний бейдж внутри меню больше не нужен. */}
-              {unreadSupport > 0 && (
-                <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-primary" />
-              )}
-            </button>
           </div>
         </div>
       </MotionConfig>
