@@ -165,6 +165,16 @@ export type Dictionary = {
     saved: string;
     cancel: string;
     nameLabel: string;
+    // --- сертификаты контура (только внутри приложения) ---
+    certs: string;
+    certsCert: string;
+    certsKey: string;
+    certsAdd: string;
+    certsReplace: string;
+    certsLoaded: string;
+    certsReady: string;
+    certsHint: string;
+    certsReveal: string;
     // --- обновления (только внутри приложения) ---
     updates: string;
     updatesVersion: string;
@@ -771,6 +781,16 @@ const ru: Dictionary = {
     saved: "Сохранено",
     cancel: "Отмена",
     nameLabel: "Имя",
+    certs: "Подключение к модели",
+    certsCert: "Сертификат",
+    certsKey: "Приватный ключ",
+    certsAdd: "Выбрать файл",
+    certsReplace: "Заменить",
+    certsLoaded: "загружен",
+    certsReady: "Оба файла на месте — модель подключена.",
+    certsHint:
+      "Модель контура узнаёт приложение по сертификату. Приложите оба файла: без них агент не сможет отвечать.",
+    certsReveal: "Показать папку",
     updates: "Обновления",
     updatesVersion: "Версия",
     updatesRow: "Новая версия",
@@ -1423,6 +1443,16 @@ const en: Dictionary = {
     saved: "Saved",
     cancel: "Cancel",
     nameLabel: "Name",
+    certs: "Model connection",
+    certsCert: "Certificate",
+    certsKey: "Private key",
+    certsAdd: "Choose file",
+    certsReplace: "Replace",
+    certsLoaded: "loaded",
+    certsReady: "Both files are in place — the model is connected.",
+    certsHint:
+      "The model identifies this app by its certificate. Add both files: without them the agent cannot reply.",
+    certsReveal: "Show folder",
     updates: "Updates",
     updatesVersion: "Version",
     updatesRow: "New version",

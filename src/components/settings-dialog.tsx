@@ -5,10 +5,14 @@ import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 import {
   Brain,
+  Check,
   Download,
+  FolderOpen,
   Loader2,
   RefreshCw,
+  ShieldCheck,
   SlidersHorizontal,
+  Upload,
   X,
 } from "lucide-react";
 import { useTheme } from "next-themes";
@@ -23,7 +27,7 @@ import {
 import { MemoryGroups } from "@/components/memory-list";
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/components/auth/auth-provider";
-import { desktopBridge, type UpdateCheck } from "@/hooks/use-is-desktop";
+import { desktopBridge, type CertStatus, type UpdateCheck } from "@/hooks/use-is-desktop";
 import { useLocale, useT } from "@/i18n/i18n-context";
 import type { Locale } from "@/lib/locale";
 
@@ -272,6 +276,106 @@ function UpdatesBlock() {
   );
 }
 
+/** Сертификаты контура: приложить файлы прямо здесь.
+ *
+ *  Папка установки лежит вне приложения, и объяснять человеку, куда копировать
+ *  два файла, — верный способ получить их не там. Кладём за него: он выбирает
+ *  файл в обычном диалоге, окно копирует его под нужным именем и правами.
+ *  Ключ — секрет, поэтому ему ставятся права только для владельца. */
+function CertsBlock() {
+  const t = useT();
+  const a = t.settings;
+  const bridge = desktopBridge();
+  const [status, setStatus] = React.useState<CertStatus | null>(null);
+  const [busy, setBusy] = React.useState<"cert" | "key" | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const reload = React.useCallback(() => {
+    void bridge?.certs.status().then(setStatus);
+  }, [bridge]);
+  React.useEffect(reload, [reload]);
+
+  if (!bridge) {
+    return (
+      <div className="flex flex-col divide-y divide-border">
+        <Row label={a.certs}>
+          <span className="text-sm text-muted-foreground">{a.updatesBrowserHint}</span>
+        </Row>
+      </div>
+    );
+  }
+
+  const pick = async (kind: "cert" | "key") => {
+    setBusy(kind);
+    setError(null);
+    try {
+      const res = await bridge.certs.pick(kind);
+      if (!res.ok && res.error) setError(res.error);
+      reload();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const ready = Boolean(status?.cert && status?.key);
+  const rows: { kind: "cert" | "key"; label: string; done: boolean }[] = [
+    { kind: "cert", label: a.certsCert, done: Boolean(status?.cert) },
+    { kind: "key", label: a.certsKey, done: Boolean(status?.key) },
+  ];
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-col divide-y divide-border">
+        {rows.map((r) => (
+          <Row key={r.kind} label={r.label}>
+            <span className="flex items-center gap-2">
+              {r.done && (
+                <span className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+                  <Check className="size-3.5" />
+                  {a.certsLoaded}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => pick(r.kind)}
+                disabled={busy !== null}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted disabled:opacity-60"
+              >
+                {busy === r.kind ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Upload className="size-4" />
+                )}
+                {r.done ? a.certsReplace : a.certsAdd}
+              </button>
+            </span>
+          </Row>
+        ))}
+      </div>
+
+      {ready ? (
+        <p className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+          <ShieldCheck className="size-3.5" />
+          {a.certsReady}
+        </p>
+      ) : (
+        <p className="text-xs text-muted-foreground">{a.certsHint}</p>
+      )}
+
+      {error && <p className="text-xs text-destructive">{error}</p>}
+
+      <button
+        type="button"
+        onClick={() => void bridge.certs.reveal()}
+        className="inline-flex w-fit items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <FolderOpen className="size-3.5" />
+        {a.certsReveal}
+      </button>
+    </div>
+  );
+}
+
 function GeneralSection() {
   const t = useT();
   const { locale, setLocale } = useLocale();
@@ -309,6 +413,11 @@ function GeneralSection() {
           />
         </Row>
         <NameRow />
+      </div>
+
+      <div>
+        <h4 className="mb-1 text-sm font-semibold">{t.settings.certs}</h4>
+        <CertsBlock />
       </div>
 
       <div>

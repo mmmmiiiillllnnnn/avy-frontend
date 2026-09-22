@@ -13,9 +13,22 @@ export type UpdateCheck = {
 
 /** Мост десктоп-оболочки (desktop/src/preload.js). Только то, что окно
  *  умеет и чего браузер не может: обновить установку. */
+/** Что сейчас лежит в папке сертификатов контура. */
+export type CertStatus = {
+  dir: string
+  cert: boolean
+  key: boolean
+}
+
 export type AvyDesktopBridge = {
   version: string
   platform: string
+  certs: {
+    status: () => Promise<CertStatus>
+    pick: (kind: "cert" | "key") => Promise<{ ok: boolean; name?: string; error?: string }>
+    clear: () => Promise<{ ok: boolean }>
+    reveal: () => Promise<{ ok: boolean }>
+  }
   updates: {
     current: () => Promise<string>
     check: () => Promise<UpdateCheck>
