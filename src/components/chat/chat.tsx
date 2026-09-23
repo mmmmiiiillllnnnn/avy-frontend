@@ -6,6 +6,7 @@ import { AIChatInput } from "@/components/ui/ai-chat-input";
 import { QuestionCard, type PendingQuestions } from "@/components/chat/question-card";
 import { PermissionCard } from "@/components/chat/permission-card";
 import type { PendingPermission } from "@/lib/chat-streams";
+import { foldParts } from "@/lib/chain-fold";
 import type { AskUserAnswer } from "@/lib/api";
 import { useAttachments, type UploadedAttachment } from "@/hooks/use-attachments";
 import {
@@ -714,7 +715,10 @@ function AssistantBubble({
   // мемоизацию MessageResponse (Streamdown перепарсивает весь markdown).
   const urlTransform = useMemo(() => makeFileUrlTransform(threadId), [threadId]);
 
-  const parts = m.parts ?? [];
+  // Одна цепочка работы на ход: промежуточный текст между тулами — заметкой
+  // внутрь, снаружи только финальный ответ (см. lib/chain-fold).
+  const rawParts = m.parts;
+  const parts = useMemo(() => foldParts(rawParts ?? []), [rawParts]);
   if (parts.length === 0) {
     // Ответ ещё не начался — индикатор печати.
     return running ? <TypingDots /> : null;

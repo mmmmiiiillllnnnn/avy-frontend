@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ChevronRight, Globe, Sparkles, type LucideIcon } from "lucide-react";
+import { ChevronRight, Globe, MessageSquareText, Sparkles, type LucideIcon } from "lucide-react";
 import { toolIcon } from "@/lib/tool-icons";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { FlowButton } from "@/components/ui/flow-button";
@@ -268,6 +268,15 @@ const LiveStream = memo(function LiveStream({
                 ) : (
                   <ClampedReasoning text={s.text} />
                 )}
+              </TimelineRow>
+            );
+          }
+
+          if (s.kind === "note") {
+            // Реплика модели между тулами — как есть, она короткая.
+            return (
+              <TimelineRow key={idx} icon={MessageSquareText} active={active} last={last}>
+                <p className="text-sm leading-relaxed text-muted-foreground">{s.text}</p>
               </TimelineRow>
             );
           }

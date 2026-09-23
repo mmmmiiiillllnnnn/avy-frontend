@@ -2,7 +2,7 @@
 
 import { memo, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, Sparkles, Bot, X } from "lucide-react";
+import { ChevronRight, MessageSquareText, Sparkles, Bot, X } from "lucide-react";
 import { ThinkingPanel } from "@/components/chat/thinking-panel";
 import {
   TimelineNode,
@@ -59,7 +59,7 @@ const HEADER: Record<Locale, { running: string; done: string }> = {
  */
 function currentStepLabel(steps: ThoughtStep[], locale: Locale): string {
   const last = steps[steps.length - 1];
-  if (!last || last.kind === "reasoning") return HEADER[locale].running;
+  if (!last || last.kind !== "tool") return HEADER[locale].running;
   return describeTool(last.name, last.args, locale).title;
 }
 
@@ -647,6 +647,19 @@ const StepRow = memo<StepRowProps>(function StepRow({
       />
     );
   }
+  if (step.kind === "note") {
+    // Реплика модели между тулами («Проверю файл…») — целиком, без сжатия:
+    // это уже короткая фраза, и сказана она человеку, а не себе.
+    return (
+      <TimelineNode
+        icon={MessageSquareText}
+        status="complete"
+        last={last}
+        hideIcon={hideIcon}
+        label={<ReasoningBody text={step.text} active={false} locale={locale} />}
+      />
+    );
+  }
   const Icon = toolIcon(step.name);
   // web_search/web_fetch — свои окошки (запрос+источники / файл).
   // task (deep-research) — вложенная лента запущенного сабагента.
@@ -929,11 +942,11 @@ export function SubagentWindow({
     >
       {run.steps.map((step, i) => {
             const last = i === run.steps.length - 1;
-            if (step.kind === "reasoning") {
+            if (step.kind === "reasoning" || step.kind === "note") {
               return (
                 <TimelineNode
                   key={i}
-                  icon={Sparkles}
+                  icon={step.kind === "note" ? MessageSquareText : Sparkles}
                   status="complete"
                   last={last}
                   label={
