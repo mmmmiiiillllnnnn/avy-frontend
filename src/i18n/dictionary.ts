@@ -819,7 +819,7 @@ const ru: Dictionary = {
         ? "Сейчас модель отвечает через DashScope."
         : provider === "contour"
           ? "Сейчас модель отвечает из контура (по сертификатам)."
-          : "Сейчас модель отвечает с прямого эндпоинта.",
+          : "Сейчас ни сертификатов контура, ни DashScope: ходы идут на прямой эндпоинт из AVY_LLM_BASE, и без него модель не ответит.",
     updates: "Обновления",
     updatesVersion: "Версия",
     updatesRow: "Новая версия",
@@ -1498,7 +1498,7 @@ const en: Dictionary = {
         ? "The model currently answers via DashScope."
         : provider === "contour"
           ? "The model currently answers from the contour (certificates)."
-          : "The model currently answers from the direct endpoint.",
+          : "Neither contour certificates nor DashScope right now: turns go to the direct endpoint from AVY_LLM_BASE, and without it the model will not answer.",
     updates: "Updates",
     updatesVersion: "Version",
     updatesRow: "New version",
