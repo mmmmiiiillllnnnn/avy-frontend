@@ -533,7 +533,6 @@ function DashscopeBlock() {
           {view.status === "off" ? a.dashscopeOff : a.dashscopeNoKey}
         </p>
       )}
-      {settings && <p className="text-xs text-muted-foreground">{a.dashscopeProvider(view.provider)}</p>}
       {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   );

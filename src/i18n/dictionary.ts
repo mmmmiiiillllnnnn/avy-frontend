@@ -186,7 +186,6 @@ export type Dictionary = {
     dashscopeOff: string;
     dashscopeKeySaved: (hint: string) => string;
     dashscopeBadKey: string;
-    dashscopeProvider: (provider: "dashscope" | "contour" | "direct") => string;
     // --- обновления (только внутри приложения) ---
     updates: string;
     updatesVersion: string;
@@ -814,12 +813,6 @@ const ru: Dictionary = {
     dashscopeOff: "Выключено: ходы идут в контур по сертификатам. Ключ сохранён.",
     dashscopeKeySaved: (hint) => `Ключ ${hint}`,
     dashscopeBadKey: "Это не похоже на ключ: минимум 8 символов, без пробелов.",
-    dashscopeProvider: (provider) =>
-      provider === "dashscope"
-        ? "Сейчас модель отвечает через DashScope."
-        : provider === "contour"
-          ? "Сейчас модель отвечает из контура (по сертификатам)."
-          : "Сейчас ни сертификатов контура, ни DashScope: ходы идут на прямой эндпоинт из AVY_LLM_BASE, и без него модель не ответит.",
     updates: "Обновления",
     updatesVersion: "Версия",
     updatesRow: "Новая версия",
@@ -1493,12 +1486,6 @@ const en: Dictionary = {
     dashscopeOff: "Off: turns go to the contour over certificates. The key is kept.",
     dashscopeKeySaved: (hint) => `Key ${hint}`,
     dashscopeBadKey: "That doesn't look like a key: at least 8 characters, no spaces.",
-    dashscopeProvider: (provider) =>
-      provider === "dashscope"
-        ? "The model currently answers via DashScope."
-        : provider === "contour"
-          ? "The model currently answers from the contour (certificates)."
-          : "Neither contour certificates nor DashScope right now: turns go to the direct endpoint from AVY_LLM_BASE, and without it the model will not answer.",
     updates: "Updates",
     updatesVersion: "Version",
     updatesRow: "New version",
