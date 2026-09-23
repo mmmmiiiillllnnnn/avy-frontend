@@ -1012,6 +1012,60 @@ export async function deleteAgentConnection(
   return res.ok;
 }
 
+// --- Подключение к модели: DashScope ---------------------------------------
+
+/** Куда сейчас идут ходы и состояние DashScope. Самого ключа здесь нет и не
+ *  будет — сервер отдаёт только факт и хвост («…a1b2»). */
+export type ModelSettings = {
+  provider: "dashscope" | "contour" | "direct";
+  dashscope: {
+    key_set: boolean;
+    key_hint: string;
+    enabled: boolean;
+    updated_at: string | null;
+  };
+};
+
+export async function fetchModelSettings(): Promise<ModelSettings | null> {
+  const res = await fetch(`${API_BASE}/api/settings/model`, { credentials: CREDENTIALS });
+  if (!res.ok) return null;
+  return res.json();
+}
+
+async function modelSettingsResult(
+  res: Response,
+): Promise<{ ok: true; settings: ModelSettings } | { ok: false; error: string }> {
+  if (res.ok) return { ok: true, settings: await res.json() };
+  let error = `Ошибка ${res.status}`;
+  try {
+    const data = await res.json();
+    if (typeof data?.detail === "string") error = data.detail;
+  } catch {
+    // Ответ без JSON — оставляем код статуса.
+  }
+  return { ok: false, error };
+}
+
+/** Сохранить ключ и/или выключатель. apiKey не задан — ключ не меняется. */
+export async function saveDashscope(body: { apiKey?: string; enabled: boolean }) {
+  const res = await fetch(`${API_BASE}/api/settings/model/dashscope`, {
+    method: "PUT",
+    credentials: CREDENTIALS,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ api_key: body.apiKey ?? null, enabled: body.enabled }),
+  });
+  return modelSettingsResult(res);
+}
+
+/** Убрать ключ совсем: ходы снова идут прежним путём. */
+export async function deleteDashscope() {
+  const res = await fetch(`${API_BASE}/api/settings/model/dashscope`, {
+    method: "DELETE",
+    credentials: CREDENTIALS,
+  });
+  return modelSettingsResult(res);
+}
+
 /** Навыки, которые можно подключить агенту. Список читается на бэкенде из
  *  каталога поставки — здесь его не дублируем. */
 export async function fetchSkills(): Promise<string[]> {

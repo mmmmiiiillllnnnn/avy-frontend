@@ -8,10 +8,12 @@ import {
   Check,
   Download,
   FolderOpen,
+  KeyRound,
   Loader2,
   RefreshCw,
   ShieldCheck,
   SlidersHorizontal,
+  Trash2,
   Upload,
   X,
 } from "lucide-react";
@@ -19,11 +21,16 @@ import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
 import {
   changeName,
+  deleteDashscope,
   fetchMemorySettings,
+  fetchModelSettings,
   fetchMyMemory,
+  saveDashscope,
   setMemoryEnabled,
   type MemoryOwner,
+  type ModelSettings,
 } from "@/lib/api";
+import { dashscopeView, isPlausibleKey } from "@/lib/model-settings";
 import { MemoryGroups } from "@/components/memory-list";
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/components/auth/auth-provider";
@@ -376,6 +383,162 @@ function CertsBlock() {
   );
 }
 
+/** DashScope: те же модели через облако — по ключу, с выключателем.
+ *
+ *  Ключ уходит на бэкенд и хранится в базе зашифрованным; назад он не
+ *  возвращается никогда — только хвост («…a1b2»), чтобы узнать свой. Выключатель
+ *  не стирает ключ: выключить облако на время (сравнить с контуром, кончился
+ *  баланс) — обычное дело, и вводить ключ заново каждый раз было бы издевательством.
+ *  Применяется сразу: бэкенд перечитывает путь к модели на следующем ходу. */
+function DashscopeBlock() {
+  const t = useT();
+  const a = t.settings;
+  const [settings, setSettings] = React.useState<ModelSettings | null>(null);
+  const [key, setKey] = React.useState("");
+  const [editing, setEditing] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let alive = true;
+    void fetchModelSettings().then((s) => {
+      if (alive) setSettings(s);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const view = dashscopeView(settings);
+  const showInput = editing || view.status === "no_key";
+
+  const apply = async (
+    run: () => Promise<{ ok: true; settings: ModelSettings } | { ok: false; error: string }>,
+  ) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await run();
+      if (res.ok) {
+        setSettings(res.settings);
+        setKey("");
+        setEditing(false);
+      } else {
+        setError(res.error);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveKey = () => {
+    if (!isPlausibleKey(key)) {
+      setError(a.dashscopeBadKey);
+      return;
+    }
+    // Вставленный ключ — это желание им пользоваться: сохраняем включённым.
+    void apply(() => saveDashscope({ apiKey: key.trim(), enabled: true }));
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-col divide-y divide-border">
+        <Row label={a.dashscope}>
+          <span className="flex items-center gap-3">
+            {view.keyHint && (
+              <span className="text-xs text-muted-foreground">{a.dashscopeKeySaved(view.keyHint)}</span>
+            )}
+            <Switch
+              checked={view.on}
+              disabled={busy || !view.toggleEnabled}
+              onCheckedChange={(next) => void apply(() => saveDashscope({ enabled: next }))}
+              aria-label={a.dashscope}
+            />
+          </span>
+        </Row>
+      </div>
+
+      {showInput ? (
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            saveKey();
+          }}
+        >
+          <input
+            type="password"
+            autoComplete="off"
+            spellCheck={false}
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+            placeholder={a.dashscopeKeyPlaceholder}
+            className={cn(FIELD_CLS, "min-w-0 flex-1")}
+            disabled={busy}
+          />
+          <button
+            type="submit"
+            disabled={busy || !key.trim()}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted disabled:opacity-60"
+          >
+            {busy ? <Loader2 className="size-4 animate-spin" /> : <KeyRound className="size-4" />}
+            {a.dashscopeSave}
+          </button>
+          {editing && (
+            <button
+              type="button"
+              onClick={() => {
+                setEditing(false);
+                setKey("");
+                setError(null);
+              }}
+              className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {a.cancel}
+            </button>
+          )}
+        </form>
+      ) : (
+        <div className="flex items-center gap-4">
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            disabled={busy}
+            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <KeyRound className="size-3.5" />
+            {a.dashscopeReplaceKey}
+          </button>
+          {view.canDelete && (
+            <button
+              type="button"
+              onClick={() => void apply(deleteDashscope)}
+              disabled={busy}
+              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-destructive"
+            >
+              <Trash2 className="size-3.5" />
+              {a.dashscopeDeleteKey}
+            </button>
+          )}
+        </div>
+      )}
+
+      {view.status === "on" ? (
+        <p className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+          <Check className="size-3.5" />
+          {a.dashscopeOn}
+        </p>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          {view.status === "off" ? a.dashscopeOff : a.dashscopeNoKey}
+        </p>
+      )}
+      {settings && <p className="text-xs text-muted-foreground">{a.dashscopeProvider(view.provider)}</p>}
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
+  );
+}
+
 function GeneralSection() {
   const t = useT();
   const { locale, setLocale } = useLocale();
@@ -415,9 +578,10 @@ function GeneralSection() {
         <NameRow />
       </div>
 
-      <div>
-        <h4 className="mb-1 text-sm font-semibold">{t.settings.certs}</h4>
+      <div className="flex flex-col gap-4">
+        <h4 className="-mb-3 text-sm font-semibold">{t.settings.certs}</h4>
         <CertsBlock />
+        <DashscopeBlock />
       </div>
 
       <div>

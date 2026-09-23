@@ -175,6 +175,18 @@ export type Dictionary = {
     certsReady: string;
     certsHint: string;
     certsReveal: string;
+    // --- DashScope: те же модели через облако ---
+    dashscope: string;
+    dashscopeKeyPlaceholder: string;
+    dashscopeSave: string;
+    dashscopeReplaceKey: string;
+    dashscopeDeleteKey: string;
+    dashscopeNoKey: string;
+    dashscopeOn: string;
+    dashscopeOff: string;
+    dashscopeKeySaved: (hint: string) => string;
+    dashscopeBadKey: string;
+    dashscopeProvider: (provider: "dashscope" | "contour" | "direct") => string;
     // --- обновления (только внутри приложения) ---
     updates: string;
     updatesVersion: string;
@@ -791,6 +803,23 @@ const ru: Dictionary = {
     certsHint:
       "Модель контура узнаёт приложение по сертификату. Приложите оба файла: без них агент не сможет отвечать.",
     certsReveal: "Показать папку",
+    dashscope: "DashScope",
+    dashscopeKeyPlaceholder: "Ключ DashScope (sk-…)",
+    dashscopeSave: "Сохранить",
+    dashscopeReplaceKey: "Заменить ключ",
+    dashscopeDeleteKey: "Удалить ключ",
+    dashscopeNoKey:
+      "Вставьте ключ — и те же модели будут отвечать через DashScope вместо контура. Ключ хранится в базе зашифрованным.",
+    dashscopeOn: "Включено: ходы идут через DashScope.",
+    dashscopeOff: "Выключено: ходы идут в контур по сертификатам. Ключ сохранён.",
+    dashscopeKeySaved: (hint) => `Ключ ${hint}`,
+    dashscopeBadKey: "Это не похоже на ключ: минимум 8 символов, без пробелов.",
+    dashscopeProvider: (provider) =>
+      provider === "dashscope"
+        ? "Сейчас модель отвечает через DashScope."
+        : provider === "contour"
+          ? "Сейчас модель отвечает из контура (по сертификатам)."
+          : "Сейчас модель отвечает с прямого эндпоинта.",
     updates: "Обновления",
     updatesVersion: "Версия",
     updatesRow: "Новая версия",
@@ -1453,6 +1482,23 @@ const en: Dictionary = {
     certsHint:
       "The model identifies this app by its certificate. Add both files: without them the agent cannot reply.",
     certsReveal: "Show folder",
+    dashscope: "DashScope",
+    dashscopeKeyPlaceholder: "DashScope API key (sk-…)",
+    dashscopeSave: "Save",
+    dashscopeReplaceKey: "Replace key",
+    dashscopeDeleteKey: "Delete key",
+    dashscopeNoKey:
+      "Paste a key and the same models will answer via DashScope instead of the contour. The key is stored encrypted in the database.",
+    dashscopeOn: "On: turns go through DashScope.",
+    dashscopeOff: "Off: turns go to the contour over certificates. The key is kept.",
+    dashscopeKeySaved: (hint) => `Key ${hint}`,
+    dashscopeBadKey: "That doesn't look like a key: at least 8 characters, no spaces.",
+    dashscopeProvider: (provider) =>
+      provider === "dashscope"
+        ? "The model currently answers via DashScope."
+        : provider === "contour"
+          ? "The model currently answers from the contour (certificates)."
+          : "The model currently answers from the direct endpoint.",
     updates: "Updates",
     updatesVersion: "Version",
     updatesRow: "New version",
