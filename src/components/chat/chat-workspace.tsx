@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EffortLevel, ChatModelId } from "@/components/ui/ai-chat-input";
+import { useModels } from "@/hooks/use-models";
 import { Files, SlidersHorizontal, SquarePen, ListChecks, ArrowLeft } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
@@ -137,7 +138,13 @@ export function ChatWorkspace({
   // чату, в котором его сделали, — в соседнем чате снова дефолт. Раньше жил на
   // уровне рабочей области и переезжал между тредами — переиграно.
   const [agentId, setAgentId] = useState<string | null>(null);
-  const [chatModel, setChatModel] = useState<ChatModelId>("qwen3.7-plus");
+  // Модель: пока человек не выбрал свою — та, что бэкенд назвал умолчанием
+  // (первая в AVY_LLM_MODELS). Прошитого значения нет: в локальной сборке
+  // модель контура называется так, как её назвал администратор.
+  const { defaultModel } = useModels();
+  const [pickedModel, setPickedModel] = useState<ChatModelId | null>(null);
+  const chatModel = pickedModel ?? defaultModel ?? undefined;
+  const setChatModel = setPickedModel;
   // Панель показывает единый список файлов сессии (результаты агента + загрузки);
   // рабочая директория агента (/work) больше не отображается.
   const files = useFiles(activeId, filesOpen, "outputs");

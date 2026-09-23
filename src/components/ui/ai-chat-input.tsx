@@ -14,6 +14,7 @@ import {
 import { useT } from "@/i18n/i18n-context";
 import type { AttachmentsApi, UploadedAttachment } from "@/hooks/use-attachments";
 import { useAgents } from "@/hooks/use-agents";
+import { useModels } from "@/hooks/use-models";
 import {
   fetchAgents,
   listSpaceAgents,
@@ -40,18 +41,12 @@ export const EFFORT_LABELS: Record<EffortLevel, string> = {
 
 export const EFFORT_ORDER: EffortLevel[] = ["low", "medium", "high", "max"];
 
-// Модели ОСНОВНОГО чата. Набор свой, не как у кодера (chat-code-input.tsx):
-// там первой идёт кодинговая kimi-k2.7-code, которая в обычном разговоре не
-// нужна. Названия продуктовые — пользователю не показываем внутренние id.
-export type ChatModelId = "qwen3.7-plus" | "qwen3.8-max";
-
-export const CHAT_MODEL_LABELS: Record<ChatModelId, string> = {
-  "qwen3.7-plus": "Enso",
-  "qwen3.8-max": "Gaia",
-};
-
-// Порядок: сначала дефолтная (быстрая и дешёвая), затем более тяжёлая.
-export const CHAT_MODEL_ORDER: ChatModelId[] = ["qwen3.7-plus", "qwen3.8-max"];
+// Модель чата — идентификатор из реестра бэкенда (AVY_LLM_MODELS), а не
+// прошитый набор. Список и умолчание отдаёт /api/models (hooks/use-models.ts):
+// в локальной сборке модель развёрнута в контуре и называется так, как её
+// назвал администратор; прошитые здесь «Enso»/«Gaia» показывали модели,
+// которых у человека нет, а бэкенд молча подменял их дефолтом.
+export type ChatModelId = string;
 
 /** Выбор АГЕНТА из библиотеки.
  *
@@ -413,9 +408,9 @@ function ModelDropdown({
     setOpen((v) => !v);
   };
 
-  // Неизвестная модель (стейт из прошлой версии/другого режима) не должна
-  // показывать пустую капсулу — падаем на технический id.
-  const label = CHAT_MODEL_LABELS[model] ?? model;
+  // Имена — настоящие, с эндпоинта; подменять их марками нечем.
+  const { models } = useModels();
+  const label = model;
 
   return (
     <div className="relative">
@@ -438,7 +433,7 @@ function ModelDropdown({
           <div className="px-3 pb-1 pt-1 text-xs font-medium text-muted-foreground">
             {t.input.modelSection}
           </div>
-          {CHAT_MODEL_ORDER.map((m) => (
+          {models.map((m) => (
             <button
               key={m}
               type="button"
@@ -451,13 +446,15 @@ function ModelDropdown({
                 model === m ? "text-foreground font-medium" : "text-muted-foreground"
               }`}
             >
-              {/* Две строки: название + чем модель отличается. Подпись нужна,
-                  чтобы Gaia не выбирали вслепую — она дороже. */}
+              {/* Подпись «чем отличается» — только если она есть в словаре:
+                  у моделей контура её нет, и пустая строка под именем не нужна. */}
               <span className="flex min-w-0 flex-col items-start text-left">
-                {CHAT_MODEL_LABELS[m]}
-                <span className="text-xs font-normal text-muted-foreground">
-                  {t.input.modelHints[m]}
-                </span>
+                {m}
+                {t.input.modelHints[m] && (
+                  <span className="text-xs font-normal text-muted-foreground">
+                    {t.input.modelHints[m]}
+                  </span>
+                )}
               </span>
               {model === m && <Check size={13} className="shrink-0 text-primary" />}
             </button>

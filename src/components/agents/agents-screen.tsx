@@ -57,22 +57,19 @@ import {
   type SkillInfo,
 } from "@/lib/api";
 import {
-  CHAT_MODEL_LABELS,
-  CHAT_MODEL_ORDER,
   EFFORT_LABELS,
   EFFORT_ORDER,
-  type ChatModelId,
   type EffortLevel,
 } from "@/components/ui/ai-chat-input";
+import { useModels } from "@/hooks/use-models";
 
 const FIELD =
   "w-full rounded-lg border border-border bg-foreground/5 px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-primary/60 focus:bg-primary/5";
 const LABEL = "text-xs font-medium text-muted-foreground";
 
-// Что подставить, когда у агента модель/глубина не заданы: те же значения, с
-// которых начинается обычный разговор (chat-workspace.tsx). Так поведение нового
-// агента совпадает с привычным, а не задаётся неявно.
-const DEFAULT_AGENT_MODEL: string = CHAT_MODEL_ORDER[0];
+// Что подставить, когда у агента глубина не задана: то же значение, с которого
+// начинается обычный разговор (chat-workspace.tsx). Модель по умолчанию — с
+// бэкенда (useModels), как и в чате: прошитого списка моделей больше нет.
 const DEFAULT_AGENT_EFFORT = "medium";
 
 
@@ -136,7 +133,7 @@ function AgentCard({
   const t = useT();
   const a = t.agents;
   const cfg = agent.config ?? {};
-  const model = cfg.model_id as ChatModelId | undefined;
+  const model = cfg.model_id as string | undefined;
   const effort = cfg.effort as EffortLevel | undefined;
   const forms = connectionForms(agent.config);
   const needsConnection = (agent.missing_connections ?? []).length > 0;
@@ -168,7 +165,7 @@ function AgentCard({
           <div className="mt-1.5 flex flex-wrap gap-1">
             {model && (
               <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
-                {CHAT_MODEL_LABELS[model] ?? model}
+                {model}
               </span>
             )}
             {effort && (
@@ -276,9 +273,9 @@ function ModelEffortPicker({
     };
   }, [open]);
 
-  // Подпись капсулы — «Модель · Глубина». Незнакомый id показываем как есть: он
-  // задан и работает (мог приехать из файла агента), скрывать его нечестно.
-  const modelLabel = CHAT_MODEL_LABELS[model as ChatModelId] ?? model;
+  // Подпись капсулы — «Модель · Глубина». Имя модели — настоящее, с эндпоинта.
+  const { models } = useModels();
+  const modelLabel = model;
   const effortLabel = EFFORT_LABELS[effort as EffortLevel] ?? effort;
   const caption = effortLabel ? `${modelLabel} · ${effortLabel}` : modelLabel;
 
@@ -331,9 +328,9 @@ function ModelEffortPicker({
           // помещается целиком.
           className="absolute bottom-full left-0 right-0 z-50 mb-1 rounded-lg border border-border bg-popover p-1 shadow-lg"
         >
-          {CHAT_MODEL_ORDER.map((m) =>
+          {models.map((m) =>
             <React.Fragment key={m}>
-              {row(model === m, CHAT_MODEL_LABELS[m], () => onModelChange(m))}
+              {row(model === m, m, () => onModelChange(m))}
             </React.Fragment>,
           )}
 
@@ -607,10 +604,14 @@ export function AgentForm({
   // Модель и глубина ЗАДАЮТСЯ ВСЕГДА, наследования из разговора нет: агент —
   // это в том числе «чем он думает», и молчаливая зависимость от того, что
   // выбрано в чате, делала его поведение невоспроизводимым. Пустое значение в
-  // конфиге (старый агент, созданный до этого) подменяем дефолтом чата.
-  const [model, setModel] = React.useState<string>(
-    (cfg.model_id as string) || DEFAULT_AGENT_MODEL,
+  // конфиге (старый агент, созданный до этого) подменяем дефолтом бэкенда —
+  // ВЫЧИСЛЯЕМ, а не пишем в стейт эффектом: список приходит асинхронно, и
+  // setState в эффекте дал бы каскадный ререндер.
+  const { defaultModel } = useModels();
+  const [pickedModel, setModel] = React.useState<string>(
+    (cfg.model_id as string) || "",
   );
+  const model = pickedModel || defaultModel || "";
   const [effort, setEffort] = React.useState<string>(
     (cfg.effort as string) || DEFAULT_AGENT_EFFORT,
   );
