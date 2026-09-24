@@ -666,8 +666,10 @@ const AIChatInput = ({
   // С allowInterject идущий ход отправку не блокирует: реплика уйдёт агенту
   // на ходу, а не наложится вторым ходом (это решает chatStreams.interject).
   const busy = compacting || (streaming && !allowInterject);
-  // Реплика посреди хода набрана: Send — главное действие, Stop отходит в
-  // тень рядом. Без текста Stop остаётся единственной и главной кнопкой.
+  // Реплика посреди хода набрана: на месте Stop — Send, одна кнопка. Стёрли
+  // текст — снова Stop. Остановить ход при набранном тексте можно Esc.
+  // Раньше Stop оставался рядом «в тени» — две кнопки читались как «стоп всё
+  // ещё главное», и человек не понимал, что реплику можно просто отправить.
   const interjecting = streaming && allowInterject && inputValue.trim().length > 0;
   // Идёт загрузка вложений в песочницу (грузятся при прикреплении): хотя бы одно
   // вложение ещё не `done`. Пока так — Send заблокирован, плашка «Загружаю…»
@@ -921,22 +923,8 @@ const AIChatInput = ({
             >
               <Mic size={20} />
             </button>
-            {/* Набрана реплика посреди хода: Stop уходит в тень слева от Send —
-                остановить по-прежнему можно (и Esc работает), но главное
-                действие сейчас — отправить агенту. */}
-            {interjecting && (
-              <button
-                className="p-3 rounded-lg text-muted-foreground hover:bg-accent hover:text-accent-foreground transition"
-                title={t.input.stop}
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onStop?.();
-                }}
-              >
-                <Square size={14} fill="currentColor" />
-              </button>
-            )}
+            {/* Набрана реплика посреди хода (interjecting): вместо Stop —
+                Send, остановить можно Esc. Стёрли текст — Stop возвращается. */}
             {streaming && !interjecting ? (
               <button
                 // p-3, а не p-2.5 как у отправки: иконка стопа 14px против 18

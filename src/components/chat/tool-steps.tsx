@@ -161,11 +161,17 @@ export function ThoughtStream({
         // «Работает» — только у последнего сегмента (там текущий шаг).
         const last = i === segments.length - 1;
         if (seg.kind === "task") {
+          // Карточке задачи — «ход идёт», а не «последний сегмент»: при
+          // ПАРАЛЛЕЛЬНЫХ вызовах task первая карточка не последняя, и без
+          // результата она читалась как «готово», хотя агент ещё работал
+          // (taskStatus без результата и без хода отдаёт done). Пока ход идёт,
+          // шаг без результата — работающий, где бы он ни стоял; результат
+          // придёт своим кадром tool_result.
           return (
             <AgentTaskStep
               key={i}
               step={seg.step}
-              running={isRunning && last}
+              running={isRunning}
               threadId={threadId}
             />
           );
