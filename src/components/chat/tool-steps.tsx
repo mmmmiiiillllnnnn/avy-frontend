@@ -10,11 +10,9 @@ import {
 } from "@/components/chat/thought-timeline";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { Shimmer } from "@/components/ai-elements/shimmer";
-import { CodingBlock } from "@/components/chat/coding-block";
 import { SearchSources } from "@/components/chat/search-sources";
 import { WeatherWidget } from "@/components/chat/weather-widget";
 import { FetchedFile } from "@/components/chat/fetched-file";
-import { ToolArgs } from "@/components/chat/tool-args";
 import { AskUserStep } from "@/components/chat/ask-user-step";
 import { BotIcon } from "@/components/chat/bot-icon";
 import { ImageThumb, imagePath, isImageRead } from "@/components/chat/image-thumb";
@@ -23,7 +21,6 @@ import { cn } from "@/lib/utils";
 import { useLocale, useT } from "@/i18n/i18n-context";
 import { contentArgsText, describeTool, type ToolStatus } from "@/lib/tool-labels";
 import { toolIcon } from "@/lib/tool-icons";
-import { splitReasoning } from "@/lib/reasoning-segments";
 import { ReasoningSummarySwap } from "@/components/chat/reasoning-clamp";
 import type { SubagentRun, ThoughtStep } from "@/hooks/use-chat";
 import { chatStreams } from "@/lib/chat-streams";
@@ -277,9 +274,10 @@ export function ThoughtChain({
           hideIcon={hideStepIcons}
         />
       ))}
-      {openRun ? (
+      {openRun && openStep && openStep.kind === "tool" ? (
         <SubagentWindow
           run={openRun}
+          running={taskStatus(openStep, isRunning) === "running"}
           locale={locale}
           threadId={threadId}
           onClose={() => setOpenCallId(null)}
@@ -509,6 +507,7 @@ function AgentTaskStep({
       {winOpen && run ? (
         <SubagentWindow
           run={run}
+          running={status === "running"}
           locale={locale}
           threadId={threadId}
           onClose={() => setWinOpen(false)}
@@ -662,7 +661,9 @@ const StepRow = memo<StepRowProps>(function StepRow({
         status="complete"
         last={last}
         hideIcon={hideIcon}
-        label={<ReasoningBody text={step.text} active={false} locale={locale} />}
+        label={
+          <MessageResponse className="text-sm text-muted-foreground">{step.text}</MessageResponse>
+        }
       />
     );
   }
@@ -798,51 +799,6 @@ const StepRow = memo<StepRowProps>(function StepRow({
   );
 });
 
-/**
- * Тело одного reasoning-шага: обычный текст рендерим markdown'ом, а ```код```
- * вытаскиваем в свёрнутый CodingBlock («Пишу код»). Shimmer на коде — только
- * если шаг активен И это последний, ещё не закрытый блок (агент печатает код
- * прямо сейчас); закрытые блоки и текст — без анимации.
- */
-function ReasoningBody({
-  text,
-  active,
-  locale,
-}: {
-  text: string;
-  active: boolean;
-  locale: Locale;
-}) {
-  const segments = splitReasoning(text);
-  if (segments.length === 0) return null;
-
-  return (
-    <>
-      {segments.map((seg, i) => {
-        if (seg.kind === "text") {
-          return (
-            <MessageResponse
-              key={i}
-              className="text-sm text-muted-foreground"
-            >
-              {seg.text}
-            </MessageResponse>
-          );
-        }
-        const isLast = i === segments.length - 1;
-        return (
-          <CodingBlock
-            key={i}
-            markdown={seg.markdown}
-            active={active && isLast && !seg.closed}
-            locale={locale}
-          />
-        );
-      })}
-    </>
-  );
-}
-
 const SUBAGENT_LABEL: Record<Locale, string> = {
   ru: "Работа субагента",
   en: "Subagent activity",
@@ -924,92 +880,69 @@ export function ChatWindow({
 }
 
 /**
- * Окно работы запущенного сабагента (deep-research) — оверлей поверх чата,
- * открывается кликом по чипу шага task и закрывается крестиком / кликом по фону
- * / Escape. Внутри — лента сабагента: его размышления, вызовы web_search/
- * web_fetch (с источниками/файлами) и финальный ответ оркестратору.
+ * Окно работы запущенного субагента — оверлей поверх чата, открывается с
+ * карточки задачи («Подробнее») и из панели субагентов, закрывается крестиком
+ * / кликом по фону / Escape.
+ *
+ * Внутри — ТА ЖЕ лента, что у ответа ассистента (см. AssistantBubble в
+ * chat.tsx): части run.parts по порядку — свёрнутая цепочка рассуждений и
+ * тулов (ThoughtStream: живая панель, пока работает; кнопка «Рассуждения»,
+ * когда закончил) и видимый текст между ними и в конце (ответ оркестратору).
+ * Раньше здесь был свой плоский таймлайн из всех шагов подряд — прежний стиль,
+ * который основная лента уже пережила.
+ *
+ * `running` — субагент ещё работает: шиммер на последней цепочке. Знает это
+ * вызывающий (статус карточки / записи панели), а не сама лента.
  */
 export function SubagentWindow({
   run,
+  running = false,
   locale,
   threadId,
   onClose,
 }: {
   run: SubagentRun;
+  running?: boolean;
   locale: Locale;
   threadId: string;
   onClose: () => void;
 }) {
+  const parts = run.parts;
+  // Как в AssistantBubble: «работает» — последняя цепочка, пока субагент
+  // работает; цепочка сворачивается, как только ПОСЛЕ неё пошёл текст.
+  const lastChainIndex = parts.map((p) => p.type).lastIndexOf("chain");
   return (
     <ChatWindow
       title={SUBAGENT_LABEL[locale]}
       icon={<BotIcon size={16} className="shrink-0 text-primary" />}
       onClose={onClose}
     >
-      {run.steps.map((step, i) => {
-            const last = i === run.steps.length - 1;
-            if (step.kind === "reasoning" || step.kind === "note") {
-              return (
-                <TimelineNode
-                  key={i}
-                  icon={step.kind === "note" ? MessageSquareText : Sparkles}
-                  status="complete"
-                  last={last}
-                  label={
-                    <ReasoningBody
-                      text={step.text}
-                      active={false}
-                      locale={locale}
-                    />
-                  }
-                />
-              );
-            }
-            const Icon = toolIcon(step.name);
-            // Лента субагента — история завершённых шагов, поэтому заголовки
-            // в прошедшем времени; неудачные помечаем формой ошибки.
-            const { title } = describeTool(
-              step.name,
-              step.args,
-              locale,
-              step.result && !step.result.ok ? "failed" : "done",
-            );
-            const isSearch = step.name === "web_search";
-            const isFetch = step.name === "web_fetch";
-            const query = isSearch ? String(step.args?.query ?? "") : "";
-            return (
-              <TimelineNode
-                key={i}
-                icon={Icon}
-                // История субагента: шаги уже отработали — красим узел по
-                // результату, как в основной ленте.
-                status={step.result && !step.result.ok ? "failed" : "done"}
-                last={last}
-                label={<span className="font-medium">{title}</span>}
-              >
-                {isSearch ? (
-                  query || step.sources?.length ? (
-                    <SearchSources sources={step.sources ?? []} query={query} />
-                  ) : null
-                ) : isFetch ? (
-                  step.file ? (
-                    <FetchedFile file={step.file} threadId={threadId} />
-                  ) : null
-                ) : step.name === "ask_user" ? (
-                  // Вопрос оркестратору: вопросы и варианты, под ними ответ —
-                  // а не JSON аргументов.
-                  <AskUserStep args={step.args} answer={step.result?.output} />
-                ) : (
-                  <ToolArgs args={step.args} />
-                )}
-              </TimelineNode>
-            );
-          })}
-      {run.text ? (
-        <MessageResponse className="mt-3 border-t border-border/60 pt-3 text-sm">
-          {run.text}
-        </MessageResponse>
+      {parts.length === 0 && running ? (
+        <Shimmer as="span" className="text-sm" duration={1.5} accentColor="var(--color-primary)">
+          {HEADER[locale].running}
+        </Shimmer>
       ) : null}
+      {parts.map((p, i) =>
+        p.type === "chain" ? (
+          <ThoughtStream
+            key={i}
+            steps={p.steps}
+            isRunning={running && i === lastChainIndex}
+            finalized={parts.slice(i + 1).some((q) => q.type === "text")}
+            threadId={threadId}
+          />
+        ) : (
+          <MessageResponse
+            // Ключ по порядку текстовых частей, как в основной ленте: вставка
+            // цепочки между текстами не должна перемонтировать абзац.
+            key={`t${parts.slice(0, i).filter((q) => q.type === "text").length}`}
+            className="text-sm"
+            isAnimating={running && i === parts.length - 1}
+          >
+            {p.text}
+          </MessageResponse>
+        ),
+      )}
     </ChatWindow>
   );
 }

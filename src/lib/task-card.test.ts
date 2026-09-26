@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { taskStatus, type TaskStep } from "@/lib/task-card";
+import { mergeChainRuns, taskStatus, type TaskStep } from "@/lib/task-card";
 
 const step = (over: Partial<TaskStep>): TaskStep => ({
   kind: "tool",
@@ -35,5 +35,39 @@ describe("taskStatus", () => {
     expect(taskStatus(step({ result: { output: "boom", ok: false, truncated: false } }), true)).toBe("error");
     expect(taskStatus(step({}), true)).toBe("running");
     expect(taskStatus(step({}), false)).toBe("done");
+  });
+});
+
+describe("mergeChainRuns", () => {
+  it("склеивает ленты беседы без дублей, соседние цепочки — в одну, тексты — отдельно", () => {
+    const first = step({
+      id: "call_1",
+      subagent: {
+        parts: [
+          { type: "chain", steps: [{ kind: "reasoning", text: "план" }, { kind: "tool", id: "c1", name: "bash", args: {} }] },
+          { type: "text", text: "Вопрос: какой формат?" },
+        ],
+      },
+    });
+    const second = step({
+      id: "call_2",
+      args: { description: "16:9", agent_id: "call_1" },
+      subagent: {
+        parts: [
+          // История несёт ту же полную ленту — дубли отбрасываются.
+          { type: "chain", steps: [{ kind: "reasoning", text: "план" }, { kind: "tool", id: "c1", name: "bash", args: {} }] },
+          { type: "text", text: "Вопрос: какой формат?" },
+          { type: "chain", steps: [{ kind: "tool", id: "c2", name: "write_file", args: {} }] },
+          { type: "text", text: "Готово." },
+        ],
+      },
+    });
+    const run = mergeChainRuns([first, second]);
+    expect(run?.parts).toEqual([
+      { type: "chain", steps: [{ kind: "reasoning", text: "план" }, { kind: "tool", id: "c1", name: "bash", args: {} }] },
+      { type: "text", text: "Вопрос: какой формат?" },
+      { type: "chain", steps: [{ kind: "tool", id: "c2", name: "write_file", args: {} }] },
+      { type: "text", text: "Готово." },
+    ]);
   });
 });

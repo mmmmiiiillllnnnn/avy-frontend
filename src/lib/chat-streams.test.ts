@@ -33,7 +33,7 @@ vi.mock("@/lib/chat-permissions", () => ({
   resolvePermission: async () => {},
 }));
 
-import { chatStreams, liveMessages, type ChatMessage } from "@/lib/chat-streams";
+import { chatStreams, liveMessages, subagentSteps, subagentText, type ChatMessage } from "@/lib/chat-streams";
 
 const runningTask = (id: string, agentId: string): ChatMessage => ({
   id,
@@ -138,5 +138,79 @@ describe("лента фонового агента", () => {
     chatStreams.detach(threadId);
     await vi.advanceTimersByTimeAsync(10_000);
     expect(attachCalls).toHaveLength(1);
+  });
+});
+
+describe("лента субагента — те же части, что у ответа ассистента", () => {
+  it("текст между тулами стоит на своём месте, итог — последняя текстовая часть", async () => {
+    const threadId = "t-parts";
+    scripts = [
+      () =>
+        stream(
+          frame("reasoning", { value: "думаю" }),
+          frame("tool", { id: "c1", name: "web_search", args: { query: "q" }, state: "available" }),
+          frame("text", { value: "Нашёл, проверю. " }),
+          frame("tool", { id: "c2", name: "bash", args: { command: "ls" }, state: "available" }),
+          frame("tool_result", { tool_call_id: "c2", output: "a", ok: true, truncated: false }),
+          frame("text", { value: "Готово." }),
+          frame("subagent_done", { agent_id: "a1", status: "done", follow_up: false }),
+        ),
+    ];
+    chatStreams.setHistory(threadId, [runningTask("m1", "a1")]);
+    await vi.advanceTimersByTimeAsync(10_000);
+    const msg = chatStreams.getState(threadId).messages[0];
+    const step = msg.parts?.[0].type === "chain" ? msg.parts[0].steps[0] : undefined;
+    const run = step?.kind === "tool" ? step.subagent : undefined;
+    expect(run?.parts.map((p) => p.type)).toEqual(["chain", "text", "chain", "text"]);
+    expect(subagentText(run)).toBe("Готово.");
+    expect(subagentSteps(run).map((s) => (s.kind === "tool" ? s.name : "reasoning"))).toEqual([
+      "reasoning",
+      "web_search",
+      "bash",
+    ]);
+    // Результат тула дописался в шаг внутри цепочки, а не потерялся.
+    const bash = subagentSteps(run)[2];
+    expect(bash.kind === "tool" && bash.result?.ok).toBe(true);
+    chatStreams.detach(threadId);
+  });
+});
+
+describe("субагент субагента", () => {
+  it("кадры с путём «внешний/вложенный» ложатся в шаг task внутри ленты внешнего", async () => {
+    const threadId = "t-nested";
+    scripts = [
+      () =>
+        stream(
+          frame("reasoning", { agent: "call_a1", value: "план" }),
+          frame("tool", {
+            agent: "call_a1", id: "inner", name: "task", state: "available",
+            args: { subagent_type: "researcher", description: "d" },
+          }),
+          frame("reasoning", { agent: "call_a1/inner", value: "думаю" }),
+          frame("tool", { agent: "call_a1/inner", id: "s1", name: "web_search", args: { query: "q" }, state: "available" }),
+          frame("sources", { agent: "call_a1/inner", tool_call_id: "s1", sources: [{ title: "t", url: "https://x" }] }),
+          frame("text", { agent: "call_a1/inner", value: "нашёл" }),
+          frame("text", { agent: "call_a1", value: "итог внешнего" }),
+          frame("subagent_done", { agent_id: "a1", status: "done", follow_up: false }),
+        ),
+    ];
+    chatStreams.setHistory(threadId, [runningTask("m1", "a1")]);
+    await vi.advanceTimersByTimeAsync(10_000);
+    const msg = chatStreams.getState(threadId).messages[0];
+    const top = msg.parts?.[0].type === "chain" ? msg.parts[0].steps[0] : undefined;
+    const outer = top?.kind === "tool" ? top.subagent : undefined;
+    // Внешний: цепочка (план + вызов task) и его итог; поиск вложенного в неё НЕ попал.
+    expect(outer?.parts.map((p) => p.type)).toEqual(["chain", "text"]);
+    expect(subagentSteps(outer).map((s) => (s.kind === "tool" ? s.name : "reasoning"))).toEqual(["reasoning", "task"]);
+    expect(subagentText(outer)).toBe("итог внешнего");
+    // Вложенный: своя лента в шаге task внешнего.
+    const innerStep = subagentSteps(outer)[1];
+    const inner = innerStep.kind === "tool" ? innerStep.subagent : undefined;
+    expect(inner?.parts.map((p) => p.type)).toEqual(["chain", "text"]);
+    expect(subagentSteps(inner).map((s) => (s.kind === "tool" ? s.name : "reasoning"))).toEqual(["reasoning", "web_search"]);
+    const search = subagentSteps(inner)[1];
+    expect(search.kind === "tool" && search.sources?.[0].url).toBe("https://x");
+    expect(subagentText(inner)).toBe("нашёл");
+    chatStreams.detach(threadId);
   });
 });

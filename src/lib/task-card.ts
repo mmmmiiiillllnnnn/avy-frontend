@@ -14,7 +14,14 @@
  */
 
 import type { SubagentQuestion } from "@/lib/api";
-import type { ChatMessage, SubagentRun, ThoughtStep } from "@/lib/chat-streams";
+import {
+  subagentSteps,
+  subagentText,
+  type ChatMessage,
+  type MessagePart,
+  type SubagentRun,
+  type ThoughtStep,
+} from "@/lib/chat-streams";
 import type { Locale } from "@/lib/locale";
 import { describeTool } from "@/lib/tool-labels";
 
@@ -87,10 +94,14 @@ export function taskQuestion(step: TaskStep): SubagentQuestion | null {
   return q ? { kind: "other", text: q } : null;
 }
 
-/** Что субагент делает прямо сейчас — по последнему шагу его ленты. */
+/** Что субагент делает прямо сейчас — по последней части его ленты. */
 export function taskLiveAction(step: TaskStep, locale: Locale): string | null {
-  const steps = step.subagent?.steps;
-  const last = steps?.[steps.length - 1];
+  const parts = step.subagent?.parts ?? [];
+  const lastPart = parts[parts.length - 1];
+  if (!lastPart) return null;
+  // Пишет видимый текст — формулирует ответ оркестратору.
+  if (lastPart.type === "text") return locale === "ru" ? "Пишу ответ…" : "Writing the answer…";
+  const last = lastPart.steps[lastPart.steps.length - 1];
   if (!last) return null;
   if (last.kind !== "tool") return locale === "ru" ? "Думаю…" : "Thinking…";
   const { title, target } = describeTool(last.name, last.args, locale, "running");
@@ -101,14 +112,13 @@ export function taskLiveAction(step: TaskStep, locale: Locale): string | null {
 
 /** Первая строка итога субагента без markdown-мусора. */
 export function taskResultLine(step: TaskStep): string | null {
-  const text = step.subagent?.text ?? "";
-  const line = firstLine(text, 160);
+  const line = firstLine(subagentText(step.subagent), 160);
   return line || null;
 }
 
 /** Число вызовов тулов в ленте субагента. */
 export function taskToolCount(step: TaskStep): number {
-  return (step.subagent?.steps ?? []).filter((s) => s.kind === "tool").length;
+  return subagentSteps(step.subagent).filter((s) => s.kind === "tool").length;
 }
 
 /** «7 шагов» / «1 шаг» / «3 steps» — формы из словаря. */
@@ -210,7 +220,7 @@ export function chainEvents(chain: TaskStep[]): TaskEvent[] {
 
 /** Шаги тулов за всю беседу. */
 export function chainToolCount(chain: TaskStep[]): number {
-  return mergeChainRuns(chain)?.steps.filter((s) => s.kind === "tool").length ?? 0;
+  return subagentSteps(mergeChainRuns(chain)).filter((s) => s.kind === "tool").length;
 }
 
 /**
@@ -219,26 +229,42 @@ export function chainToolCount(chain: TaskStep[]): number {
  * Вживую кадры продолжения ложатся в шаг продолжения (у него только хвост
  * после ответа), а у исходного вызова — начало до вопроса: склеиваем по
  * порядку. В истории оба вызова несут одну и ту же полную ленту (один ns
- * чекпойнта) — поэтому шаги дедуплицируем: тулы по id вызова, рассуждения по
- * тексту. Итоговый текст — у последнего вызова, который что-то сказал.
+ * чекпойнта) — поэтому части дедуплицируем: тулы по id вызова, рассуждения и
+ * текст по содержимому. Соседние цепочки сливаются в одну (как в основной
+ * ленте), тексты остаются отдельными частями: между ответом субагента и его
+ * следующей репликой был ответ оркестратора, склеивать их в один абзац нельзя.
  */
 export function mergeChainRuns(chain: TaskStep[]): SubagentRun | undefined {
   const runs = chain.map((s) => s.subagent).filter((r): r is SubagentRun => !!r);
   if (runs.length === 0) return undefined;
   if (runs.length === 1) return runs[0];
   const seen = new Set<string>();
-  const steps: ThoughtStep[] = [];
-  let text = "";
+  const parts: MessagePart[] = [];
   for (const run of runs) {
-    for (const st of run.steps) {
-      const key = st.kind === "tool" ? `t:${st.id ?? `${st.name}:${JSON.stringify(st.args)}`}` : `r:${st.text}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      steps.push(st);
+    for (const p of run.parts) {
+      if (p.type === "text") {
+        const key = `x:${p.text}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        parts.push(p);
+        continue;
+      }
+      const steps = p.steps.filter((st) => {
+        const key = st.kind === "tool" ? `t:${st.id ?? `${st.name}:${JSON.stringify(st.args)}`}` : `r:${st.text}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      if (steps.length === 0) continue;
+      const last = parts[parts.length - 1];
+      if (last && last.type === "chain") {
+        parts[parts.length - 1] = { ...last, steps: [...last.steps, ...steps] };
+      } else {
+        parts.push({ type: "chain", steps });
+      }
     }
-    if (run.text) text = run.text;
   }
-  return { steps, text };
+  return { parts };
 }
 
 /** Первая непустая строка без markdown-разметки, обрезанная до max. */

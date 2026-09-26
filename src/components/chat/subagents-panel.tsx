@@ -126,8 +126,8 @@ export function SubagentsPanel({
   // Открытая лента субагента (по key). Сам run достаём из entries на рендере,
   // чтобы окно показывало живую ленту при стриме, а не снимок на момент клика.
   const [openKey, setOpenKey] = useState<string | null>(null);
-  const openRun = useMemo(
-    () => entries.find((e) => e.key === openKey)?.run,
+  const openEntry = useMemo(
+    () => entries.find((e) => e.key === openKey),
     [entries, openKey],
   );
   // Раскрытые строки: бриф прямо в панели (toggle по кнопке >).
@@ -247,9 +247,10 @@ export function SubagentsPanel({
         </div>
       )}
 
-      {openRun ? (
+      {openEntry?.run ? (
         <SubagentWindow
-          run={openRun}
+          run={openEntry.run}
+          running={openEntry.running}
           locale={locale}
           threadId={threadId}
           onClose={() => setOpenKey(null)}

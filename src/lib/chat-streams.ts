@@ -58,10 +58,30 @@ export type FetchedFile = {
 
 export type { Weather, WeatherCondition, WeatherDay, WeatherHour } from "@/lib/api";
 
-// Лента работы одного сабагента (режим deep-research): его размышления и вызовы
-// web_search/web_fetch + финальный ответ оркестратору. Привязана к шагу-вызову
-// task; фронт показывает её в отдельном окне по клику на чип task.
-export type SubagentRun = { steps: ThoughtStep[]; text: string };
+// Лента работы одного субагента — ТЕ ЖЕ упорядоченные части, что у ответа
+// ассистента (MessagePart: свёрнутая цепочка reasoning+tool / видимый текст),
+// поэтому окно «Подробнее» рисует её теми же компонентами, что основную ленту.
+// Ответ оркестратору — последняя текстовая часть (subagentText). Привязана к
+// шагу-вызову task. Раньше была плоским списком шагов + отдельным текстом: окно
+// выглядело иначе, чем основная лента, а реплики субагента между тулами
+// сливались в один «итог».
+export type SubagentRun = { parts: MessagePart[] };
+
+/** Все шаги ленты субагента подряд (по всем цепочкам) — для счётчиков и
+ *  «что делает сейчас». */
+export function subagentSteps(run: SubagentRun | undefined): ThoughtStep[] {
+  return (run?.parts ?? []).flatMap((p) => (p.type === "chain" ? p.steps : []));
+}
+
+/** Итог субагента — его последний видимый текст (ответ оркестратору). */
+export function subagentText(run: SubagentRun | undefined): string {
+  const parts = run?.parts ?? [];
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i];
+    if (p.type === "text") return p.text;
+  }
+  return "";
+}
 
 export type ThoughtStep =
   // summary — фраза-сжатие блока (qwen3.8-flash, событие reasoning_summary или
@@ -263,7 +283,10 @@ type ThreadRecord = {
   bgStreams: Map<string, AbortController>;
   // Буфер дельт фоновых агентов — как subagentBuffer, но с явной привязкой к
   // сообщению и шагу: связка subagentMap живёт один ход, а агент — дольше.
-  bgBuffer: Map<string, { msgId: string; callId: string; reasoning: string; text: string }>;
+  bgBuffer: Map<
+    string,
+    { msgId: string; callId: string; nested: string[]; reasoning: string; text: string }
+  >;
   bgFlush: ReturnType<typeof setTimeout> | 0;
   // Параметры последнего хода — ими идёт ход доставки репорта (та же модель,
   // тот же агент). Обновляет хук при каждом изменении выбора в UI.
@@ -557,6 +580,47 @@ function resolveTaskCallId(
   return free;
 }
 
+/**
+ * Ключ агента у кадра — ПУТЬ вызовов task от верхнего до самого агента через
+ * «/» (сервер: _feed_meta в тула task). Верхний сегмент — id вызова в основной
+ * ленте (по нему находится окно), остальные — вложенные вызовы внутри ленты
+ * этого субагента: исследователь, делегированный ассистенту, зовёт своих
+ * researcher / wide-*, и их кадры должны лечь в ИХ шаги task, а не в ленту
+ * внешнего одним потоком (там вложенный поиск выглядел так, будто внешний
+ * ищет сам). Старый ключ без «/» — только верхний.
+ */
+function splitAgentKey(agentKey: string): { top: string; nested: string[] } {
+  const [top, ...nested] = agentKey.split("/");
+  return { top, nested };
+}
+
+/**
+ * Применить правку к ленте ВЛОЖЕННОГО субагента по пути id вызовов task
+ * внутри run (субагент субагента). Пустой путь — сама лента. Шага с таким id
+ * нет (кадр опередил вызов — редкая гонка) — лента не меняется.
+ */
+function patchNestedRun(
+  run: SubagentRun,
+  path: string[],
+  apply: (run: SubagentRun) => SubagentRun,
+): SubagentRun {
+  if (path.length === 0) return apply(run);
+  const [head, ...rest] = path;
+  let hit = false;
+  const parts = run.parts.map((p) => {
+    if (hit || p.type !== "chain") return p;
+    const steps = p.steps.map((s) => {
+      if (!hit && s.kind === "tool" && s.id === head) {
+        hit = true;
+        return { ...s, subagent: patchNestedRun(s.subagent ?? { parts: [] }, rest, apply) };
+      }
+      return s;
+    });
+    return hit ? { ...p, steps } : p;
+  });
+  return hit ? { parts } : run;
+}
+
 /** Применить событие к ленте сабагента внутри шага task с данным callId. */
 function patchSubagentStep(
   m: ChatMessage,
@@ -569,7 +633,7 @@ function patchSubagentStep(
     const steps = p.steps.map((s) => {
       if (!hit && s.kind === "tool" && s.id === callId) {
         hit = true;
-        const run = s.subagent ?? { steps: [], text: "" };
+        const run = s.subagent ?? { parts: [] };
         return { ...s, subagent: apply(run) };
       }
       return s;
@@ -579,52 +643,73 @@ function patchSubagentStep(
   return hit ? { ...m, parts } : m;
 }
 
-/** Дописать reasoning/text-дельту в ленту сабагента (склейка с последним). */
+// Накопители ленты субагента — те же правила, что у applyEvent для ленты
+// оркестратора: reasoning склеивается с последним reasoning-шагом текущей
+// цепочки, текст — с последней текстовой частью, tool-шаг обновляется на месте
+// по id или встаёт в конец текущей цепочки.
+
+/** Дописать reasoning-дельту в ленту субагента (склейка с последним шагом). */
 function appendSubagentReasoning(run: SubagentRun, text: string): SubagentRun {
-  const steps = [...run.steps];
+  const parts = [...run.parts];
+  const chain = lastChain(parts);
+  const steps = [...chain.steps];
   const last = steps[steps.length - 1];
   if (last && last.kind === "reasoning") {
     steps[steps.length - 1] = { ...last, text: last.text + text };
   } else {
     steps.push({ kind: "reasoning", text });
   }
-  return { ...run, steps };
+  parts[parts.length - 1] = { ...chain, steps };
+  return { parts };
 }
 
-/** Обновить/добавить tool-шаг в ленте сабагента (по id, как в основной ленте). */
+/** Дописать видимый текст субагента (склейка с последней текстовой частью). */
+function appendSubagentText(run: SubagentRun, text: string): SubagentRun {
+  const parts = [...run.parts];
+  const last = parts[parts.length - 1];
+  if (last && last.type === "text") {
+    parts[parts.length - 1] = { ...last, text: last.text + text };
+  } else {
+    parts.push({ type: "text", text });
+  }
+  return { parts };
+}
+
+/** Обновить/добавить tool-шаг в ленте субагента (по id, как в основной ленте). */
 function upsertSubagentTool(
   run: SubagentRun,
   data: { id: string; name: string; args: Record<string, unknown>; state: "streaming" | "available" },
 ): SubagentRun {
-  let hit = false;
-  const steps = run.steps.map((s) => {
-    if (!hit && s.kind === "tool" && s.id === data.id) {
-      hit = true;
-      return { ...s, args: data.args, state: data.state };
-    }
-    return s;
-  });
-  if (!hit) {
-    steps.push({ kind: "tool", id: data.id, name: data.name, args: data.args, state: data.state });
-  }
-  return { ...run, steps };
+  const updated = patchSubagentToolResult(run, data.id, { args: data.args, state: data.state });
+  if (updated !== run) return updated;
+  const parts = [...run.parts];
+  const chain = lastChain(parts);
+  parts[parts.length - 1] = {
+    ...chain,
+    steps: [...chain.steps, { kind: "tool", id: data.id, name: data.name, args: data.args, state: data.state }],
+  };
+  return { parts };
 }
 
-/** Дописать sources/file в tool-шаг ленты сабагента по tool_call_id. */
+/** Дописать sources/file/результат в tool-шаг ленты субагента по tool_call_id. */
 function patchSubagentToolResult(
   run: SubagentRun,
   callId: string,
   data: Partial<Extract<ThoughtStep, { kind: "tool" }>>,
 ): SubagentRun {
   let hit = false;
-  const steps = run.steps.map((s) => {
-    if (!hit && s.kind === "tool" && s.id === callId) {
-      hit = true;
-      return { ...s, ...data };
-    }
-    return s;
+  const parts = run.parts.map((p) => {
+    if (hit || p.type !== "chain") return p;
+    const steps = p.steps.map((s) => {
+      if (!hit && s.kind === "tool" && s.id === callId) {
+        hit = true;
+        return { ...s, ...data };
+      }
+      return s;
+    });
+    return hit ? { ...p, steps } : p;
   });
-  return hit ? { ...run, steps } : run;
+  return hit ? { parts } : run;
 }
 
 // --- Фоновые субагенты --------------------------------------------------------
@@ -679,7 +764,7 @@ function openBackgroundStream(
           // reload) замещаем, иначе шаги задвоятся. При truncated начало
           // потеряно — тогда история точнее, дописываем к ней.
           if (kind !== "truncated") {
-            patchBackgroundRun(threadId, msgId, callId, () => ({ steps: [], text: "" }));
+            patchBackgroundRun(threadId, msgId, callId, [], () => ({ parts: [] }));
           }
         }
         if (ev.type === "subagent_done") {
@@ -750,19 +835,31 @@ function attachRunningBackground(threadId: string, msgs: ChatMessage[]) {
   }
 }
 
+/** Правка ленты фонового агента (или, по пути nested, вложенного в неё субагента). */
 function patchBackgroundRun(
   threadId: string,
   msgId: string,
   callId: string,
+  nested: string[],
   apply: (run: SubagentRun) => SubagentRun,
 ) {
   patchMessages(threadId, (msgs) =>
-    msgs.map((m) => (m.id === msgId ? patchSubagentStep(m, callId, apply) : m)),
+    msgs.map((m) =>
+      m.id === msgId
+        ? patchSubagentStep(m, callId, (run) => patchNestedRun(run, nested, apply))
+        : m,
+    ),
   );
 }
 
-/** Кадр ленты агента → его лента в шаге task. Вложенных субагентов агента
- *  (поле agent у кадра) не различаем — всё в одну ленту. */
+/** Путь вложенных вызовов внутри ленты фонового агента. Кадры самого агента
+ *  несут ключ его корня (без «/»), кадры его субагентов — `корень/вызов/…`. */
+function backgroundNestedPath(agentKey: string | null | undefined): string[] {
+  return agentKey ? splitAgentKey(agentKey).nested : [];
+}
+
+/** Кадр ленты агента → его лента в шаге task; кадры вложенных субагентов —
+ *  в их шаги task внутри неё (по пути в поле agent). */
 function applyBackgroundEvent(
   threadId: string,
   msgId: string,
@@ -770,14 +867,15 @@ function applyBackgroundEvent(
   agentId: string,
   ev: ChatEvent,
 ) {
+  const nested = backgroundNestedPath("agent" in ev ? ev.agent : null);
   switch (ev.type) {
     case "reasoning":
     case "text":
-      bufferBackgroundDelta(threadId, msgId, callId, agentId, ev.type, ev.value);
+      bufferBackgroundDelta(threadId, msgId, callId, agentId, nested, ev.type, ev.value);
       return;
     case "tool":
       flushBackgroundBuffer(threadId);
-      patchBackgroundRun(threadId, msgId, callId, (run) =>
+      patchBackgroundRun(threadId, msgId, callId, nested, (run) =>
         upsertSubagentTool(run, {
           id: ev.id,
           name: ev.name,
@@ -787,22 +885,22 @@ function applyBackgroundEvent(
       );
       return;
     case "sources":
-      patchBackgroundRun(threadId, msgId, callId, (run) =>
+      patchBackgroundRun(threadId, msgId, callId, nested, (run) =>
         patchSubagentToolResult(run, ev.tool_call_id, { sources: ev.sources }),
       );
       return;
     case "fetched":
-      patchBackgroundRun(threadId, msgId, callId, (run) =>
+      patchBackgroundRun(threadId, msgId, callId, nested, (run) =>
         patchSubagentToolResult(run, ev.tool_call_id, { file: ev.file }),
       );
       return;
     case "weather":
-      patchBackgroundRun(threadId, msgId, callId, (run) =>
+      patchBackgroundRun(threadId, msgId, callId, nested, (run) =>
         patchSubagentToolResult(run, ev.tool_call_id, { weather: ev.weather }),
       );
       return;
     case "tool_result":
-      patchBackgroundRun(threadId, msgId, callId, (run) =>
+      patchBackgroundRun(threadId, msgId, callId, nested, (run) =>
         patchSubagentToolResult(run, ev.tool_call_id, {
           result: { output: ev.output, ok: ev.ok, truncated: ev.truncated },
         }),
@@ -818,14 +916,17 @@ function bufferBackgroundDelta(
   msgId: string,
   callId: string,
   agentId: string,
+  nested: string[],
   type: "reasoning" | "text",
   value: string,
 ) {
   const r = rec(threadId);
-  let buf = r.bgBuffer.get(agentId);
+  // Свой буфер на каждого вложенного: дельты разных агентов не склеиваются.
+  const key = `${agentId}\n${nested.join("/")}`;
+  let buf = r.bgBuffer.get(key);
   if (!buf) {
-    buf = { msgId, callId, reasoning: "", text: "" };
-    r.bgBuffer.set(agentId, buf);
+    buf = { msgId, callId, nested, reasoning: "", text: "" };
+    r.bgBuffer.set(key, buf);
   }
   buf[type] += value;
   if (!r.bgFlush) {
@@ -848,10 +949,14 @@ function flushBackgroundBuffer(threadId: string) {
       for (const b of entries) {
         if (b.msgId !== m.id) continue;
         if (b.reasoning) {
-          mm = patchSubagentStep(mm, b.callId, (run) => appendSubagentReasoning(run, b.reasoning));
+          mm = patchSubagentStep(mm, b.callId, (run) =>
+            patchNestedRun(run, b.nested, (inner) => appendSubagentReasoning(inner, b.reasoning)),
+          );
         }
         if (b.text) {
-          mm = patchSubagentStep(mm, b.callId, (run) => ({ ...run, text: run.text + b.text }));
+          mm = patchSubagentStep(mm, b.callId, (run) =>
+            patchNestedRun(run, b.nested, (inner) => appendSubagentText(inner, b.text)),
+          );
         }
       }
       return mm;
@@ -1016,18 +1121,18 @@ function flushSubagentBuffer(threadId: string, assistantId: string) {
       if (m.id !== assistantId) return m;
       let mm = m;
       for (const [agentKey, buf] of entries) {
-        const callId = resolveTaskCallId(r, mm, agentKey);
+        const { top, nested } = splitAgentKey(agentKey);
+        const callId = resolveTaskCallId(r, mm, top);
         if (!callId) continue;
         if (buf.reasoning) {
           mm = patchSubagentStep(mm, callId, (run) =>
-            appendSubagentReasoning(run, buf.reasoning),
+            patchNestedRun(run, nested, (inner) => appendSubagentReasoning(inner, buf.reasoning)),
           );
         }
         if (buf.text) {
-          mm = patchSubagentStep(mm, callId, (run) => ({
-            ...run,
-            text: run.text + buf.text,
-          }));
+          mm = patchSubagentStep(mm, callId, (run) =>
+            patchNestedRun(run, nested, (inner) => appendSubagentText(inner, buf.text)),
+          );
         }
       }
       return mm;
@@ -1079,11 +1184,14 @@ function applySubagentEvent(
   patchMessages(threadId, (msgs) =>
     msgs.map((m) => {
       if (m.id !== assistantId) return m;
-      const callId = resolveTaskCallId(r, m, agentKey);
+      const { top, nested } = splitAgentKey(agentKey);
+      const callId = resolveTaskCallId(r, m, top);
       if (!callId) return m; // шага task ещё нет — пропускаем (редкая гонка)
+      const patch = (fn: (run: SubagentRun) => SubagentRun) =>
+        patchSubagentStep(m, callId, (run) => patchNestedRun(run, nested, fn));
       switch (ev.type) {
         case "tool":
-          return patchSubagentStep(m, callId, (run) =>
+          return patch((run) =>
             upsertSubagentTool(run, {
               id: ev.id,
               name: ev.name,
@@ -1092,15 +1200,13 @@ function applySubagentEvent(
             }),
           );
         case "sources":
-          return patchSubagentStep(m, callId, (run) =>
+          return patch((run) =>
             patchSubagentToolResult(run, ev.tool_call_id, { sources: ev.sources }),
           );
         case "fetched":
-          return patchSubagentStep(m, callId, (run) =>
-            patchSubagentToolResult(run, ev.tool_call_id, { file: ev.file }),
-          );
+          return patch((run) => patchSubagentToolResult(run, ev.tool_call_id, { file: ev.file }));
         case "weather":
-          return patchSubagentStep(m, callId, (run) =>
+          return patch((run) =>
             patchSubagentToolResult(run, ev.tool_call_id, { weather: ev.weather }),
           );
         default:
