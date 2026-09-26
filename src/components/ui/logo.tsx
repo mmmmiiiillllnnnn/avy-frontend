@@ -15,20 +15,19 @@ export function Logo({ size, className = "" }: LogoProps) {
         viewBox="0 0 24 24"
         xmlns="http://www.w3.org/2000/svg"
       >
-        {/* Лого по теме, как и акцент: светлая — прежний бренд-оранжевый
-            (медь на белом тусклая в любой глубине — пробовали #b0714a и
-            #a06336), тёмная — медь «медного монохрома». */}
+        {/* Лого по теме, как и акцент «графит»: светлая — графитовый квадрат
+            с белым знаком, тёмная — светло-серый квадрат с тёмным знаком.
+            Цвета = --primary / --primary-foreground обеих тем. */}
         <rect
           width="24"
           height="24"
           rx="6.24"
           ry="6.24"
-          className="fill-[#e05d38] dark:fill-[#c58963]"
+          className="fill-[#333333] dark:fill-[#e4e4e4]"
         />
         <path
           d="M12 15.5l-5-5h10z"
-          fill="white"
-          stroke="white"
+          className="fill-white stroke-white dark:fill-[#121212] dark:stroke-[#121212]"
           strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"

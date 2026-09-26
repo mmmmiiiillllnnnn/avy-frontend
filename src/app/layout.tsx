@@ -86,15 +86,15 @@ export default function RootLayout({
             приложение смонтировалось. */}
         <div id="app-splash" aria-hidden>
           <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            {/* Цвета = components/ui/logo.tsx (в светлой оранжевый, в тёмной
-                медь). Инлайн — тёмный вариант (SSR-база тёмная); светлый
-                подменяет globals.css той же media, что и фон заставки: класса
-                темы до гидрации ещё нет. */}
-            <rect width="24" height="24" rx="6.24" ry="6.24" fill="#c58963" />
+            {/* Цвета = components/ui/logo.tsx («графит»: в тёмной светлый
+                квадрат с тёмным знаком, в светлой — наоборот). Инлайн — тёмный
+                вариант (SSR-база тёмная); светлый подменяет globals.css той же
+                media, что и фон заставки: класса темы до гидрации ещё нет. */}
+            <rect width="24" height="24" rx="6.24" ry="6.24" fill="#e4e4e4" />
             <path
               d="M12 15.5l-5-5h10z"
-              fill="white"
-              stroke="white"
+              fill="#121212"
+              stroke="#121212"
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"

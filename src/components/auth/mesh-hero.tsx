@@ -5,11 +5,11 @@ import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 import { Logo } from "@/components/ui/logo";
 
-// Палитра mesh-градиента под «медный монохром» (globals.css): серые нейтрали
-// темы + медь единственным цветным пятном. Параметры distortion/swirl/speed/
+// Палитра mesh-градиента под «графит» (globals.css): только серые нейтрали
+// темы, светлое пятно вместо цветного. Параметры distortion/swirl/speed/
 // offsetX — прежние (подобраны для варианта «Mesh» на website).
-const DARK_COLORS = ["#0b0b0b", "#121212", "#3a3a3a", "#c58963", "#565656", "#1b1b1b"];
-const LIGHT_COLORS = ["#333333", "#8f8f8f", "#565656", "#e05d38", "#cccccc", "#ededed"];
+const DARK_COLORS = ["#0b0b0b", "#121212", "#3a3a3a", "#e4e4e4", "#565656", "#1b1b1b"];
+const LIGHT_COLORS = ["#333333", "#8f8f8f", "#565656", "#333333", "#cccccc", "#ededed"];
 
 /**
  * Правый блок экранов входа/регистрации: живой mesh-градиент (WebGL-шейдер) во
