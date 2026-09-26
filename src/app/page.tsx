@@ -10,7 +10,8 @@ import { MODES } from "@/components/sidebar-modes";
 import { useThreads } from "@/hooks/use-threads";
 
 export default function Home() {
-  const [mode, setMode] = useState<string>(MODES[0].id);
+  // Режим один (ассистент): переключателя в шапке сайдбара больше нет.
+  const mode = MODES[0].id;
 
   // Список сессий поднят сюда (общий предок сайдбара и воркспейса), чтобы
   // сайдбар показывал сессии тем же стейтом, каким чат ими управляет.
@@ -75,7 +76,6 @@ export default function Home() {
       >
         <AppSidebar
           mode={mode}
-          onModeChange={setMode}
           sessions={sidebarSessions}
           onOpenFiles={() => { setTasksOpen(false); setAgentsOpen(false); setSpacesOpen(false); setAllFilesOpen(true); }}
           onOpenTasks={() => { setAllFilesOpen(false); setAgentsOpen(false); setSpacesOpen(false); setTasksOpen(true); }}

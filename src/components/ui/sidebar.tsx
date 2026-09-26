@@ -28,10 +28,14 @@ import { PanelLeftIcon } from "lucide-react"
 const SIDEBAR_COOKIE_NAME = "sidebar_state"
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
 const SIDEBAR_WIDTH = "16rem"
-// Ресайз: минимум — дефолтные 16rem, максимум — треть окна. Схема как у панели
+// Ресайз: минимум — 16rem, максимум — треть окна. Схема как у панели
 // файлов (chat/files-panel.tsx: usePanelWidth) — setPointerCapture на ручке,
 // localStorage, clamp по окну.
 const SIDEBAR_MIN_WIDTH_PX = 256
+// Ширина по умолчанию (пока человек не тянул ручку) — шире минимума на два
+// шага сетки: 288px. При 256 заголовки чатов и марка в шапке стояли впритык
+// (решение владельца 26.09). Сохранённая ширина имеет приоритет.
+const SIDEBAR_DEFAULT_WIDTH_PX = 288
 const SIDEBAR_WIDTH_STORAGE_KEY = "avy:sidebar-width"
 const SIDEBAR_WIDTH_MOBILE = "18rem"
 const SIDEBAR_WIDTH_ICON = "3rem"
@@ -56,7 +60,7 @@ function clampSidebarWidth(px: number): number {
  *  Копия usePanelWidth из панели файлов, зеркально: сайдбар слева, поэтому
  *  ширина равна координате курсора, а не расстоянию до правого края. */
 function useSidebarWidth() {
-  const [width, setWidth] = React.useState(SIDEBAR_MIN_WIDTH_PX)
+  const [width, setWidth] = React.useState(SIDEBAR_DEFAULT_WIDTH_PX)
 
   // Восстанавливаем после маунта: на сервере нет ни localStorage, ни window
   // для clamp — иначе разошлись бы с серверной разметкой.

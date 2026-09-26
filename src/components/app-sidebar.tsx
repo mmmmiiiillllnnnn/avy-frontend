@@ -21,7 +21,6 @@ import { useT } from "@/i18n/i18n-context"
 
 export function AppSidebar({
   mode,
-  onModeChange,
   sessions,
   onOpenFiles,
   onOpenTasks,
@@ -32,7 +31,6 @@ export function AppSidebar({
   ...props
 }: React.ComponentProps<typeof Sidebar> & {
   mode?: string
-  onModeChange?: (id: string) => void
   sessions: SessionsApi
   /** Открыть полноэкранный раздел «Файлы» (все сессии). */
   onOpenFiles?: () => void
@@ -49,9 +47,9 @@ export function AppSidebar({
   /** Открыть диалог «Обратная связь» (пункт в меню пользователя внизу). */
   /** Обращений с непрочитанным ответом — бейдж в меню пользователя. */
 }) {
-  const [localMode, setLocalMode] = React.useState<string>(MODES[0].id)
-  const value = mode ?? localMode
-  const setMode = onModeChange ?? setLocalMode
+  // Режим сайдбар только показывает (шапка) и по нему выбирает тело; менять
+  // его отсюда нельзя — переключателя в шапке больше нет.
+  const value = mode ?? MODES[0].id
   const { isMobile, setOpenMobile } = useSidebar()
 
   // На мобильном сайдбар — шторка поверх контента: после перехода она обязана
@@ -66,13 +64,6 @@ export function AppSidebar({
     if (!isMobile) return
     const el = e.target as HTMLElement | null
     if (el?.closest('[data-sidebar="menu-button"]')) setOpenMobile(false)
-  }
-
-  // Смена режима — тоже навигация, но её кнопки живут внутри SidebarModes
-  // собственной разметкой, без menu-button.
-  const onChange = (id: string) => {
-    setMode(id)
-    if (isMobile) setOpenMobile(false)
   }
 
   return (
@@ -93,11 +84,9 @@ export function AppSidebar({
           давал свои p-2, и центр шапки сайдбара сидел на 26.75px против 28px
           у хедера: расхождение в пару пикселей, но по горизонтали оно видно. */}
       <SidebarHeader className="h-14 justify-center py-0">
-        {/* Отдельного бренд-блока здесь больше НЕТ: выбранный режим и есть
-            название продукта («Avy Chat» / «Avy Code»), поэтому надпись рядом
-            с ним была бы тем же словом дважды. Логотип переехал внутрь самого
-            переключателя — см. SidebarModes. */}
-        <SidebarModes value={value} onChange={onChange} />
+        {/* Марка продукта — текстом, название режима («Avy Chat»; в локальной
+            сборке он один). Ни логотипа, ни переключателя: см. SidebarModes. */}
+        <SidebarModes value={value} />
       </SidebarHeader>
       {/* SidebarContent сам НЕ скроллится (overflow-hidden) — вертикальный
           контейнер. Скролл живёт только внутри списка сессий.
@@ -158,8 +147,11 @@ function ModeBody({
     { icon: ListChecks, label: t.sidebar.tasks, onClick: onOpenTasks, soon: false },
     { icon: Files, label: t.sidebar.files, onClick: onOpenFiles, soon: false },
   ]
+  // pt-0: свои 8px сверху группа не добавляет — шапка (h-14, текст по центру)
+  // и так оставляет под маркой пустоту, и с ещё одним отступом «Новый чат»
+  // отваливался от неё (замечание владельца 26.09).
   return (
-    <SidebarGroup>
+    <SidebarGroup className="pt-0">
       <SidebarMenu>
         {/* Главное действие — создать новый чат. Акцентная строка над пунктами. */}
         <SidebarMenuItem>

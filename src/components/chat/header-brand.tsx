@@ -2,12 +2,15 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import { useSidebar } from "@/components/ui/sidebar";
-import { Brand } from "@/components/brand";
+import { Logo } from "@/components/ui/logo";
 
 /**
- * Бренд-блок в правом углу шапки. Появляется, только когда сайдбар свёрнут
- * (логотип там уже не виден), и плавно выезжает из-за правого края экрана.
+ * Знак в правом углу шапки. Появляется, только когда сайдбар свёрнут (марка
+ * в его шапке уже не видна), и плавно выезжает из-за правого края экрана.
  * Когда сайдбар развёрнут — уезжает обратно за край.
+ *
+ * Только знак, без надписи «Avy Chat» (решение владельца 26.09): название
+ * теперь живёт текстом в шапке сайдбара, а здесь достаточно логотипа.
  */
 export function HeaderBrand() {
   const { state } = useSidebar();
@@ -24,7 +27,7 @@ export function HeaderBrand() {
           exit={{ x: 48, opacity: 0 }}
           transition={{ type: "spring", stiffness: 260, damping: 30 }}
         >
-          <Brand logoSize={28} />
+          <Logo size={28} />
         </motion.div>
       )}
     </AnimatePresence>
