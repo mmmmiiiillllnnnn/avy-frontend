@@ -13,7 +13,7 @@ import {
 } from "@/lib/chat-streams";
 import { useT } from "@/i18n/i18n-context";
 import type { AttachmentsApi, UploadedAttachment } from "@/hooks/use-attachments";
-import { useAgents } from "@/hooks/use-agents";
+import { useAgentModel, useAgents } from "@/hooks/use-agents";
 import { useModels } from "@/hooks/use-models";
 import {
   fetchAgents,
@@ -376,11 +376,15 @@ function ModelDropdown({
   onModelChange,
   effort,
   onEffortChange,
+  agentModel,
 }: {
   model: ChatModelId;
   onModelChange?: (m: ChatModelId) => void;
   effort: EffortLevel;
   onEffortChange?: (e: EffortLevel) => void;
+  /** Модель, заданная выбранному агенту: показываем только её, без выбора —
+   *  ход всё равно пойдёт на ней (бэкенд, app._agent_model). */
+  agentModel?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0 });
@@ -408,9 +412,10 @@ function ModelDropdown({
     setOpen((v) => !v);
   };
 
-  // Имена — настоящие, с эндпоинта; подменять их марками нечем.
+  // Имена — настоящие, с эндпоинта; подменять их марками нечем. Модель,
+  // заданная агенту, показывается вместо выбранной в чате.
   const { models } = useModels();
-  const label = model;
+  const label = agentModel ?? model;
 
   return (
     <div className="relative">
@@ -433,7 +438,15 @@ function ModelDropdown({
           <div className="px-3 pb-1 pt-1 text-xs font-medium text-muted-foreground">
             {t.input.modelSection}
           </div>
-          {models.map((m) => (
+          {agentModel ? (
+            <div className="flex w-full items-center justify-between gap-3 px-3 py-1.5 text-sm text-foreground font-medium">
+              <span className="flex min-w-0 flex-col items-start text-left">
+                {agentModel}
+                <span className="text-xs font-normal text-muted-foreground">{t.input.modelByAgent}</span>
+              </span>
+              <Check size={13} className="shrink-0 text-primary" />
+            </div>
+          ) : models.map((m) => (
             <button
               key={m}
               type="button"
@@ -571,6 +584,8 @@ const AIChatInput = ({
   attachmentsApi,
 }: AIChatInputProps) => {
   const t = useT();
+  // Агент, открытый как режим, работает на СВОЕЙ модели, если она задана.
+  const agentModel = useAgentModel(agentId);
   const { attachments, rejected, allReady, addFiles, removeFile, takeUploaded } =
     attachmentsApi;
   const [isActive, setIsActive] = useState(false);
@@ -1022,6 +1037,7 @@ const AIChatInput = ({
                   onModelChange={onModelChange}
                   effort={effort}
                   onEffortChange={onEffortChange}
+                  agentModel={agentModel}
                 />
               )}
             </div>

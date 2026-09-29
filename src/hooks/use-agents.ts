@@ -35,6 +35,7 @@ let inflight: Promise<Agent[]> | null = null;
 export function invalidateAgents() {
   cache = null;
   inflight = null;
+  allInflight = null;
 }
 
 /** Агенты для выбора над полем ввода: только включённые, с кэшем. */
@@ -65,6 +66,41 @@ export function useAgents(): { agents: Agent[]; loading: boolean } {
   }, []);
 
   return { agents, loading };
+}
+
+// Полная библиотека (с выключенными) — для модели выбранного режима: агент
+// команды пространства может быть выключен в «Моих агентах», а открыт как режим.
+let allInflight: Promise<Agent[]> | null = null;
+
+/** Модель, заданная выбранному агенту (`model:` в его файле), — внутренний id.
+ *  null — агент не выбран или модель не задана: тогда действует выбор в поле
+ *  ввода. Бэкенд делает то же (app._agent_model), здесь — чтобы капсула
+ *  показывала правду, а не модель, на которой ход всё равно не пойдёт. */
+export function useAgentModel(agentId: string | null | undefined): string | null {
+  const { agents } = useAgents();
+  const known = agentId ? agents.find((a) => a.id === agentId) : undefined;
+  const [fetched, setFetched] = useState<{ id: string; model: string | null } | null>(null);
+
+  useEffect(() => {
+    if (!agentId || known) return;
+    let alive = true;
+    allInflight = allInflight ?? fetchAgents().catch(() => []);
+    allInflight.then((list) => {
+      if (alive) setFetched({ id: agentId, model: modelOf(list.find((a) => a.id === agentId)) });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [agentId, known]);
+
+  if (!agentId) return null;
+  if (known) return modelOf(known);
+  return fetched?.id === agentId ? fetched.model : null;
+}
+
+function modelOf(agent: Agent | undefined): string | null {
+  const m = agent?.config?.model_id;
+  return typeof m === "string" && m ? m : null;
 }
 
 export type AgentLibraryApi = {

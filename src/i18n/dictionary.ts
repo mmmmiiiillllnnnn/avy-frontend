@@ -357,6 +357,7 @@ export type Dictionary = {
     agentPick: string;
     /** Заголовки разделов в меню модели: список моделей и глубина рассуждения. */
     modelSection: string;
+    modelByAgent: string;
     effortSection: string;
     agentNone: string;
     spacesGroup: string;
@@ -1089,6 +1090,7 @@ const ru: Dictionary = {
     deepResearch: "Глубокое исследование",
     agentPick: "Режим",
     modelSection: "Модель",
+    modelByAgent: "Задана агентом",
     effortSection: "Глубина рассуждения",
     agentNone: "По умолчанию",
     spacesGroup: "Пространства",
@@ -1852,6 +1854,7 @@ const en: Dictionary = {
     deepResearch: "Deep research",
     agentPick: "Mode",
     modelSection: "Model",
+    modelByAgent: "Set by the agent",
     effortSection: "Reasoning depth",
     agentNone: "Default",
     spacesGroup: "Workspaces",
