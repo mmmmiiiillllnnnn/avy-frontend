@@ -1643,6 +1643,8 @@ export type MemoryFact = {
   /** ISO. Срок жизни факта; null = бессрочно. */
   expires_at: string | null;
   created_at: string | null;
+  /** Файл факта в /memory не разобрался: в промпт он не идёт, причина здесь. */
+  error?: string | null;
 };
 
 /** Память одного владельца. Личная память принадлежит ЧЕЛОВЕКУ (одна на всех

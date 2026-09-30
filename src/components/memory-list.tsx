@@ -107,6 +107,12 @@ export function MemoryFactRow({
         <span className="min-w-0 flex-1 truncate text-[13px] text-foreground">
           {fact.description}
         </span>
+        {/* Файл факта не разобрался: в промпт он не идёт, причина — здесь. */}
+        {fact.error && (
+          <span className="shrink-0 max-w-[40%] truncate text-[10.5px] text-destructive">
+            {fact.error}
+          </span>
+        )}
         {/* Срок — тихим текстом, не чипом: он есть у меньшинства фактов и не
             должен перетягивать взгляд. */}
         {expiry && (
