@@ -177,6 +177,11 @@ function AgentCard({
         <p className="mt-0.5 line-clamp-3 h-12 text-xs text-muted-foreground">
           {agent.description}
         </p>
+        {/* Файл AGENT.md не разобрался — как у навыка: причина на карточке,
+            агента нет в выборе, пока файл не починят. */}
+        {agent.error && (
+          <p className="mt-0.5 line-clamp-2 text-xs text-destructive">{agent.error}</p>
+        )}
       </div>
 
       <div className="mt-auto flex h-7 shrink-0 items-center gap-1">

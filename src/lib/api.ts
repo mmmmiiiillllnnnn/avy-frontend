@@ -912,6 +912,9 @@ export type Agent = {
    *  агент выключен: сервер не отдаёт его в выбор и не даёт ход; карточка
    *  показывает «Нужно подключение» и кнопку. */
   missing_connections: string[];
+  /** Файл /agents/<slug>/AGENT.md не разобрался: текст ошибки. Такой агент
+   *  не попадает в выбор, пока файл не починят. */
+  error?: string | null;
   /** Когда заведён — для сортировки «сначала новые». */
   created_at: string | null;
 };
@@ -2065,6 +2068,11 @@ export type RecurringTask = {
   space_id?: string | null;
   /** Агент из библиотеки, которым идёт прогон. null — ассистент. */
   agent_id?: string | null;
+  /** Каталог задачи: /tasks/<slug>/ в песочнице. */
+  slug?: string | null;
+  /** Файл /tasks/<slug>/TASK.md не разобрался: текст ошибки. Планировщик
+   *  такую задачу не берёт, пока файл не починят. */
+  error?: string | null;
 };
 
 export type TaskRun = {

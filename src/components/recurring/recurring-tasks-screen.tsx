@@ -1053,6 +1053,11 @@ function TaskCard({
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="truncate text-sm font-medium">{task.title}</span>
         <span className="truncate text-xs text-muted-foreground">{humanSchedule(spec, t)}</span>
+        {/* Файл TASK.md не разобрался — причина на карточке; планировщик
+            такую задачу не берёт, пока файл не починят. */}
+        {task.error && (
+          <span className="truncate text-xs text-destructive">{task.error}</span>
+        )}
       </div>
       {last && <last.Icon className={cn("size-4 shrink-0", last.cls)} />}
       {!task.enabled && (
