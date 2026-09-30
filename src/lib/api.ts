@@ -2262,6 +2262,10 @@ export type Space = {
   pinned: boolean;
   created_at: string;
   updated_at: string;
+  /** Каталог пространства: /spaces/<slug>/SPACE.md в песочнице. */
+  slug?: string | null;
+  /** Файл SPACE.md не разобрался: текст ошибки, пока файл не починят. */
+  error?: string | null;
 };
 
 const SPACES_BASE = `${API_BASE}/api/spaces`;

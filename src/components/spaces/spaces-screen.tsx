@@ -1011,6 +1011,10 @@ function SpaceDetail({
               inputClassName="max-w-prose"
               onSave={(description) => onRename({ description })}
             />
+            {/* Файл SPACE.md не разобрался — причина здесь, как у навыка. */}
+            {space.error && (
+              <p className="max-w-prose text-xs text-destructive">{space.error}</p>
+            )}
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             <button
