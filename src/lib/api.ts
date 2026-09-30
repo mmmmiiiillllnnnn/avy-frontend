@@ -1503,6 +1503,9 @@ export type MySkill = {
   /** Тело SKILL.md — сама инструкция. */
   body: string;
   enabled: boolean;
+  /** Файл навыка не разобрался (нет описания, пустое тело…): текст ошибки.
+   *  Такой навык агенту не достаётся, пока файл не поправят. */
+  error?: string | null;
   builtin: false;
   editable: true;
   created_at: string | null;
