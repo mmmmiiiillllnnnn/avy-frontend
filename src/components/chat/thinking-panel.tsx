@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useConnectorLabels } from "@/lib/connector-registry";
 import { ChevronRight, Globe, MessageSquareText, Sparkles, type LucideIcon } from "lucide-react";
 import { toolIcon } from "@/lib/tool-icons";
 import { Shimmer } from "@/components/ai-elements/shimmer";
@@ -209,6 +210,8 @@ const LiveStream = memo(function LiveStream({
   running: boolean;
   threadId: string;
 }) {
+  // Названия инструментов коннекторов приходят с каталогом — перерисовать по приходу.
+  useConnectorLabels();
   const ref = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
 

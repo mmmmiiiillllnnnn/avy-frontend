@@ -19,6 +19,9 @@ import {
 // Кнопка-развилка «вручную / с помощью ассистента» — общая для всех
 // абстракций (агенты, навыки, пространства, задачи), поэтому берём готовую.
 import { CreateButton } from "@/components/agents/agents-screen";
+import { useConnectorItems, useConnectorList } from "@/components/agents/connector-items";
+import { ConnectorRulesDialog } from "@/components/agents/connector-rules-dialog";
+import { PickerField } from "@/components/ui/picker-field";
 import { Modal } from "@/components/ui/modal";
 import { SelectNative } from "@/components/ui/select-native";
 import { useAgents } from "@/hooks/use-agents";
@@ -35,6 +38,7 @@ import {
   type TaskRun,
   type SecretMeta,
   type TaskUpload,
+  type ConnectorRules,
 } from "@/lib/api";
 import {
   attachTaskExtras,
@@ -98,6 +102,21 @@ function humanSchedule(spec: ScheduleSpec, t: ReturnType<typeof useT>): string {
 
 // export: та же форма служит созданию задачи ИЗ ПРОСТРАНСТВА (spaces-screen) —
 // единая точка создания, а не своя форма в каждом разделе.
+
+/** agent_config задачи с правилами коннекторов — только выбранных: убранный
+ *  коннектор уносит свои правила с собой. Пусто — ключа нет. */
+function withConnectorRules(
+  config: Record<string, unknown>,
+  rules: ConnectorRules,
+  connectors: string[],
+): Record<string, unknown> {
+  const kept = Object.fromEntries(Object.entries(rules).filter(([id]) => connectors.includes(id)));
+  const out = { ...config };
+  if (Object.keys(kept).length > 0) out.connector_rules = kept;
+  else delete out.connector_rules;
+  return out;
+}
+
 export function TaskForm({
   initial,
   taskId,
@@ -119,6 +138,8 @@ export function TaskForm({
       schedule: string;
       timezone: string;
       agent_id: string;
+      /** Прочие ключи сохраняются как были; форма правит только коннекторы. */
+      agent_config: Record<string, unknown>;
       error_policy: Record<string, unknown>;
     },
     extras: TaskExtras,
@@ -142,6 +163,24 @@ export function TaskForm({
   // работе агенты (те же, что в выборе над полем ввода).
   const [agentId, setAgentId] = React.useState(initial?.agent_id ?? "");
   const { agents: libraryAgents } = useAgents();
+  // Коннекторы прогона — явным списком id. Они ДОБАВЛЯЮТСЯ к набору самого
+  // агента (как у пространства), а не заменяют его: пусто значит «ничего
+  // сверх агента». Остальное из agent_config форма не трогает и при
+  // сохранении возвращает как было.
+  const initialAgentConfig = (initial?.agent_config ?? {}) as Record<string, unknown>;
+  const [connectors, setConnectors] = React.useState<string[]>(
+    Array.isArray(initialAgentConfig.connectors)
+      ? (initialAgentConfig.connectors as string[])
+      : [],
+  );
+  const connectorList = useConnectorList();
+  const connectorItems = useConnectorItems(connectorList);
+  // Правила коннекторов задачи: что прогону доступно и что подтверждать.
+  // Прогон идёт без человека — окно об этом предупреждает (unattended).
+  const [connectorRules, setConnectorRules] = React.useState<ConnectorRules>(
+    (initialAgentConfig.connector_rules as ConnectorRules | undefined) ?? {},
+  );
+  const [rulesFor, setRulesFor] = React.useState<string | null>(null);
   // Политика ошибок — свёрнутый блок «Дополнительно»: дефолты разумные, но
   // задача может быть чувствительной к повторам (напр. постинг в канал).
   const initialPolicy = (initial?.error_policy ?? {}) as Record<string, unknown>;
@@ -220,6 +259,11 @@ export function TaskForm({
                   schedule: cron,
                   timezone: tz,
                   agent_id: agentId,
+                  agent_config: withConnectorRules(
+                    { ...initialAgentConfig, connectors },
+                    connectorRules,
+                    connectors,
+                  ),
                   error_policy: {
                     max_retries: maxRetries,
                     backoff_s: backoffS,
@@ -346,6 +390,36 @@ export function TaskForm({
           ))}
         </SelectNative>
       </div>
+
+      {/* Коннекторы — сразу под агентом: это ответ на тот же вопрос «чем
+          задача располагает». Выбранное карточками + «Добавить» в окно. */}
+      <PickerField
+        label={rt.connectorsLabel}
+        hint={rt.connectorsHint}
+        title={t.connectors.pickerTitle}
+        items={connectorItems}
+        value={connectors}
+        onChange={setConnectors}
+        onConfigure={setRulesFor}
+        configuredIds={Object.keys(connectorRules)}
+        emptyText={t.connectors.pickerEmpty}
+      />
+      {rulesFor && connectorList?.find((x) => x.id === rulesFor) && (
+        <ConnectorRulesDialog
+          connector={connectorList.find((x) => x.id === rulesFor)!}
+          rule={connectorRules[rulesFor]}
+          unattended
+          onChange={(rule) =>
+            setConnectorRules((cur) => {
+              const next = { ...cur };
+              if (rule) next[rulesFor] = rule;
+              else delete next[rulesFor];
+              return next;
+            })
+          }
+          onClose={() => setRulesFor(null)}
+        />
+      )}
 
       {/* Поведение при сбое — не свёрнутый «Дополнительно», а живая фраза с
           полями внутри: так видно СМЫСЛ настройки («повторить 2 раза с паузой
@@ -1072,6 +1146,7 @@ export function RecurringTasksScreen({
       schedule: string;
       timezone: string;
       agent_id: string;
+      agent_config: Record<string, unknown>;
       error_policy: Record<string, unknown>;
     },
     extras: TaskExtras,

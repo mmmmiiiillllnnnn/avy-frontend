@@ -250,6 +250,12 @@ export type ChatEvent =
       interrupt_id: string | null;
       questions: AskUserQuestionSpec[];
     }
+  | {
+      /** Агент просит подключить сервис (тула connector) — ход на паузе. */
+      type: "connector_request";
+      interrupt_id: string | null;
+      connector: ConnectorCardInfo;
+    }
   | { type: "stopped" }
   // /attach: offset клиента — из прежнего хода. Сервер поднял новый ход без
   // клиента (доставка репорта фонового агента), нумерация кадров началась с
@@ -310,9 +316,14 @@ export type ChatRequest = {
   /** Режим Avy Code: возобновление после approval — решения по permission_request. */
   resume?: { type: string; [k: string]: unknown }[] | null;
   /** Ответы на ask_user_request — по одному на вопрос, в порядке questions.
-   *  Отдельно от resume: у HITL-канала своя форма, у вопросов своя. */
-  answers?: AskUserAnswer[] | null;
+   *  Отдельно от resume: у HITL-канала своя форма, у вопросов своя.
+   *  Словарь {connected} — ответ на карточку коннектора (connector_request):
+   *  тот же канал, форму ждёт та тула, что подняла interrupt. */
+  answers?: AskUserAnswer[] | ConnectorAnswer | null;
 };
+
+/** Ответ на карточку «Подключить <сервис>»: подключил или отказался. */
+export type ConnectorAnswer = { connected: boolean };
 
 /**
  * Отправить сообщение и асинхронно получать события ответа.
@@ -1012,6 +1023,267 @@ export async function deleteAgentConnection(
   return res.ok;
 }
 
+// ── MCP-коннекторы (раздел «Коннекторы») ─────────────────────────────────────
+
+/** Коннектор из каталога или свой сервер + состояние подключения. Ни одного
+ *  имени сервиса здесь нет: каталог живёт на бэкенде (connectors/*.yaml). */
+/** Поле формы входа коннектора (`auth: form`, блок `fields:` каталога). */
+export type ConnectorField = {
+  name: string;
+  type: "text" | "email" | "url" | "password" | "checkbox";
+  label: Record<string, string>;
+  hint: Record<string, string>;
+  placeholder: string;
+  required: boolean;
+  secret: boolean;
+};
+
+export type ConnectorInfo = {
+  id: string;
+  title: string;
+  description: string;
+  /** Способы входа в порядке предпочтения: oauth | token | none | form. */
+  auth: string[];
+  /** Поля формы входа; пусто у коннекторов без `auth: form`. */
+  fields?: ConnectorField[];
+  site: string;
+  token_hint: string;
+  /** Переменные окружения, без которых вход невозможен (OAuth-клиент Google). */
+  missing_env: string[];
+  custom: boolean;
+  /** Путь к логотипу (web/public/connectors/*.svg); у своего сервера нет. */
+  logo: string | null;
+  /** Как проходит вход: окно сервиса с возвратом к нам или код на странице
+   *  сервиса (Яндекс ID). Нет поля — старый сервер, значит redirect. */
+  sign_in?: "redirect" | "device";
+  /** Описание для человека по языкам ({ru, en}); `description` — строка для модели. */
+  summary: Record<string, string>;
+  /** Как подключить — шаги по языкам; пусто, если хватает поля токена. */
+  guide?: Record<string, string[]>;
+  /** Список объектов подключения в карточке (чаты бота): подписи по языкам.
+   *  null/нет — списка у коннектора нет. */
+  resources?: ConnectorResourceLabels | null;
+  /** Название для человека по языкам; `title` — запасное. */
+  titles?: Record<string, string>;
+  /** Человеческие названия инструментов: {send: {ru, en}}. */
+  tool_labels?: Record<string, Record<string, string>>;
+  /** Что подтверждается по умолчанию (`confirm:` каталога). */
+  confirm_default?: string[];
+  /** Общие настройки человека; null — умолчание. */
+  settings?: ConnectorSettings | null;
+  url?: string | null;
+  /** Свой сервер: его файл в мире агента и почему файл не разобран. */
+  file?: string | null;
+  error?: string | null;
+  connected: boolean;
+  status: "pending" | "connected" | "reauth" | null;
+  connected_with: string | null;
+  updated_at: string | null;
+};
+
+export type ConnectorTool = { name: string; description: string };
+
+/** Общие настройки коннектора: какие инструменты подтверждать в обычных
+ *  чатах. confirm=null — умолчание каталога; autoApprove — всё без спроса. */
+export type ConnectorSettings = { confirm: string[] | null; autoApprove: boolean };
+
+/** Правило коннектора у сущности (агент, задача, пространство). Поле null или
+ *  его нет — этот уровень молчит: tools — все доступны, confirm — как в
+ *  общих настройках (connectors/rules.py на бэкенде). */
+export type ConnectorRule = { tools?: string[] | null; confirm?: string[] | null };
+export type ConnectorRules = Record<string, ConnectorRule>;
+
+export type ConnectorResourceLabels = {
+  title?: Record<string, string>;
+  add?: Record<string, string>;
+  empty?: Record<string, string>;
+};
+
+/** Объект подключения (чат бота и т.п.). Подписи — уже на языке интерфейса. */
+export type ConnectorResource = { id: string; title: string; subtitle?: string; warning?: string };
+
+/** Карточка коннектора в ленте чата: агент просит подключить сервис. */
+export type ConnectorCardInfo = Pick<
+  ConnectorInfo,
+  "id" | "title" | "description" | "auth" | "site" | "token_hint" | "missing_env" | "custom" | "logo" | "summary"
+> &
+  Partial<Pick<ConnectorInfo, "titles" | "tool_labels" | "guide" | "resources" | "confirm_default">> & {
+    reason?: "not_connected" | "reauth";
+  };
+
+/** Описание коннектора на языке интерфейса; без перевода — строка для модели. */
+export function connectorSummary(
+  c: Pick<ConnectorInfo, "summary" | "description">,
+  locale: string,
+): string {
+  return c.summary?.[locale] || c.summary?.en || c.description;
+}
+
+async function errorText(res: Response, fallback: string): Promise<string> {
+  try {
+    const data = await res.json();
+    if (typeof data?.detail === "string") return data.detail;
+  } catch {
+    // без JSON — код статуса информативнее пустой строки
+  }
+  return fallback;
+}
+
+export async function fetchConnectors(): Promise<ConnectorInfo[]> {
+  const res = await fetch(`${API_BASE}/api/connectors`, { credentials: CREDENTIALS });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data.connectors ?? []) as ConnectorInfo[];
+}
+
+/** Подключить коннектор каталога токеном (или без входа, если он это умеет).
+ *  Бэкенд проверяет подключение сразу — ходит за списком инструментов. */
+export async function connectConnector(
+  id: string,
+  token?: string,
+  /** Значения формы входа (`auth: form`): адрес сервера, логин, пароль… */
+  fields?: Record<string, string | boolean>,
+): Promise<{ ok: true; tools: ConnectorTool[] } | { ok: false; error: string }> {
+  const res = await fetch(`${API_BASE}/api/connectors/${encodeURIComponent(id)}/connect`, {
+    method: "POST",
+    credentials: CREDENTIALS,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(fields ? { token: null, fields } : { token: token ?? null }),
+  });
+  if (!res.ok) return { ok: false, error: await errorText(res, `Ошибка ${res.status}`) };
+  const data = await res.json();
+  return { ok: true, tools: (data.tools ?? []) as ConnectorTool[] };
+}
+
+/** Свой MCP-сервер: адрес и способ входа. */
+export async function addCustomConnector(body: {
+  title: string;
+  url: string;
+  auth: "oauth" | "token" | "none";
+  token?: string;
+}): Promise<{ ok: true; connector: ConnectorInfo } | { ok: false; error: string }> {
+  const res = await fetch(`${API_BASE}/api/connectors`, {
+    method: "POST",
+    credentials: CREDENTIALS,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) return { ok: false, error: await errorText(res, `Ошибка ${res.status}`) };
+  return { ok: true, connector: (await res.json()) as ConnectorInfo };
+}
+
+/** Вход кодом устройства: код, который человек вводит на странице сервиса. */
+export type DeviceCode = { userCode: string; verificationUrl: string; expiresIn: number };
+
+export type OAuthStart =
+  | { ok: true; url: string; device?: undefined }
+  | { ok: true; url?: undefined; device: DeviceCode }
+  | { ok: false; error: string };
+
+/** Ответ /oauth/start: ссылка на окно сервиса или код устройства. */
+export function parseOAuthStart(data: unknown): OAuthStart {
+  const d = (data ?? {}) as { url?: unknown; device?: Record<string, unknown> | null };
+  if (d.device && typeof d.device === "object") {
+    const code = String(d.device.user_code ?? "");
+    const url = String(d.device.verification_url ?? "");
+    if (!code || !url) return { ok: false, error: "Сервис не выдал код входа" };
+    return { ok: true, device: { userCode: code, verificationUrl: url, expiresIn: Number(d.device.expires_in) || 300 } };
+  }
+  const url = String(d.url ?? "");
+  return url ? { ok: true, url } : { ok: false, error: "Сервис не выдал ссылку входа" };
+}
+
+/** Начать OAuth-вход. Обычно сервер отдаёт ссылку, куда отправить человека
+ *  (вернувшись на наш коллбэк, сервис завершает вход сам), а для сервисов без
+ *  своего адреса возврата — код устройства: его вводят на странице сервиса,
+ *  токен сервер забирает сам. */
+export async function startConnectorOAuth(id: string): Promise<OAuthStart> {
+  const res = await fetch(`${API_BASE}/api/connectors/${encodeURIComponent(id)}/oauth/start`, {
+    method: "POST",
+    credentials: CREDENTIALS,
+  });
+  if (!res.ok) return { ok: false, error: await errorText(res, `Ошибка ${res.status}`) };
+  return parseOAuthStart(await res.json());
+}
+
+export type DeviceState = { state: "none" | "pending" | "connected" | "failed" | "expired"; error?: string | null };
+
+/** Чем кончилось ожидание кода устройства. */
+export async function fetchDeviceState(id: string): Promise<DeviceState> {
+  const res = await fetch(`${API_BASE}/api/connectors/${encodeURIComponent(id)}/oauth/device`, {
+    credentials: CREDENTIALS,
+  });
+  if (!res.ok) return { state: "none" };
+  return (await res.json()) as DeviceState;
+}
+
+export async function fetchConnectorTools(id: string): Promise<ConnectorTool[] | null> {
+  const res = await fetch(`${API_BASE}/api/connectors/${encodeURIComponent(id)}/tools`, {
+    credentials: CREDENTIALS,
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return (data.tools ?? []) as ConnectorTool[];
+}
+
+function resourcesUrl(id: string, lang: string, rid?: string): string {
+  const tail = rid ? `/${encodeURIComponent(rid)}` : "";
+  return `${API_BASE}/api/connectors/${encodeURIComponent(id)}/resources${tail}?lang=${encodeURIComponent(lang)}`;
+}
+
+/** Список объектов подключения; сервер заодно забирает свежее у сервиса. */
+export async function fetchConnectorResources(
+  id: string,
+  lang: string,
+): Promise<{ ok: true; items: ConnectorResource[] } | { ok: false; error: string }> {
+  const res = await fetch(resourcesUrl(id, lang), { credentials: CREDENTIALS });
+  if (!res.ok) return { ok: false, error: await errorText(res, `Ошибка ${res.status}`) };
+  const data = await res.json();
+  return { ok: true, items: (data.items ?? []) as ConnectorResource[] };
+}
+
+export async function addConnectorResource(
+  id: string,
+  lang: string,
+  value: string,
+): Promise<{ ok: true; item: ConnectorResource } | { ok: false; error: string }> {
+  const res = await fetch(resourcesUrl(id, lang), {
+    method: "POST",
+    credentials: CREDENTIALS,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value }),
+  });
+  if (!res.ok) return { ok: false, error: await errorText(res, `Ошибка ${res.status}`) };
+  const data = await res.json();
+  return { ok: true, item: data.item as ConnectorResource };
+}
+
+export async function removeConnectorResource(id: string, lang: string, rid: string): Promise<boolean> {
+  const res = await fetch(resourcesUrl(id, lang, rid), { method: "DELETE", credentials: CREDENTIALS });
+  return res.ok;
+}
+
+export async function saveConnectorSettings(
+  id: string,
+  settings: ConnectorSettings | null,
+): Promise<{ ok: true; connector: ConnectorInfo } | { ok: false; error: string }> {
+  const res = await fetch(`${API_BASE}/api/connectors/${encodeURIComponent(id)}/settings`, {
+    method: "PUT",
+    credentials: CREDENTIALS,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings ?? { confirm: null, autoApprove: false }),
+  });
+  if (!res.ok) return { ok: false, error: await errorText(res, `Ошибка ${res.status}`) };
+  return { ok: true, connector: (await res.json()) as ConnectorInfo };
+}
+
+export async function deleteConnector(id: string): Promise<boolean> {
+  const res = await fetch(`${API_BASE}/api/connectors/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    credentials: CREDENTIALS,
+  });
+  return res.ok;
+}
 // --- Подключение к модели: DashScope ---------------------------------------
 
 /** Куда сейчас идут ходы и состояние DashScope. Самого ключа здесь нет и не
@@ -1567,13 +1839,32 @@ export type HistoryMessage = {
 export async function fetchThreadMessages(
   threadId: string,
 ): Promise<HistoryMessage[]> {
+  return (await fetchThreadHistory(threadId)).messages;
+}
+
+/** Ход на паузе: те же события, что шлёт стрим (permission_request,
+ *  ask_user_request, connector_request) — карточки восстанавливаются по ним. */
+export type PendingEvent = {
+  type: "permission_request" | "ask_user_request" | "connector_request";
+  interrupt_id?: string | null;
+  tool?: string;
+  args?: Record<string, unknown>;
+  description?: string;
+  questions?: unknown[];
+  connector?: unknown;
+};
+
+/** История треда вместе с тем, что ждёт ответа человека. */
+export async function fetchThreadHistory(
+  threadId: string,
+): Promise<{ messages: HistoryMessage[]; pending: PendingEvent[] }> {
   const res = await fetch(
     `${API_BASE}/api/threads/${encodeURIComponent(threadId)}/messages`,
     { credentials: CREDENTIALS },
   );
-  if (!res.ok) return [];
+  if (!res.ok) return { messages: [], pending: [] };
   const data = await res.json();
-  return data.messages ?? [];
+  return { messages: data.messages ?? [], pending: data.pending ?? [] };
 }
 
 // --- Файлы сессии -----------------------------------------------------------
@@ -2090,6 +2381,44 @@ export async function setSpaceSkills(id: string, slugs: string[]): Promise<void>
   });
 }
 
+/** id коннекторов, которые видят агенты пространства. Пусто — не видят ни
+ *  одного: всё, кроме универсального ассистента, объявляет коннекторы явно. */
+export async function listSpaceConnectors(id: string): Promise<string[]> {
+  const res = await fetch(`${SPACES_BASE}/${encodeURIComponent(id)}/connectors`, {
+    credentials: CREDENTIALS,
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.ids ?? [];
+}
+
+/** Правила коннекторов пространства (доступные инструменты, подтверждения). */
+export async function fetchSpaceConnectorRules(id: string): Promise<ConnectorRules> {
+  const res = await fetch(`${SPACES_BASE}/${encodeURIComponent(id)}/connectors`, {
+    credentials: CREDENTIALS,
+  });
+  if (!res.ok) return {};
+  const data = await res.json();
+  return (data.rules ?? {}) as ConnectorRules;
+}
+
+/** Перезаписать список коннекторов пространства целиком (PUT = replace).
+ *  rules — заодно и их правила; без них правила остаются как были. */
+export async function setSpaceConnectors(
+  id: string,
+  ids: string[],
+  rules?: ConnectorRules,
+): Promise<string[]> {
+  const res = await fetch(`${SPACES_BASE}/${encodeURIComponent(id)}/connectors`, {
+    method: "PUT",
+    credentials: CREDENTIALS,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(rules ? { ids, rules } : { ids }),
+  });
+  if (!res.ok) return ids;
+  const data = await res.json();
+  return data.ids ?? ids;
+}
 /** id агентов, подключённых к пространству (команда). */
 export async function listSpaceAgents(id: string): Promise<string[]> {
   const res = await fetch(

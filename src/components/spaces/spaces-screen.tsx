@@ -6,14 +6,14 @@ import {
   ArchiveRestore,
   Bot,
   Brain,
-  Check,
   Clock,
   Download,
   FileText,
   Info,
   MessageCircle,
+  Plug,
   Plus,
-  Search,
+  SlidersHorizontal,
   Trash2,
   Wrench,
 } from "lucide-react";
@@ -24,6 +24,10 @@ import { Modal } from "@/components/ui/modal";
 // разделам не плодим.
 import { AgentForm, CreateButton, SkillForm } from "@/components/agents/agents-screen";
 import { TaskForm } from "@/components/recurring/recurring-tasks-screen";
+import { useConnectorItems, useConnectorList } from "@/components/agents/connector-items";
+import { ConnectorRulesDialog } from "@/components/agents/connector-rules-dialog";
+import { ConnectorLogo } from "@/components/agents/connectors-panel";
+import { LibraryPickerModal } from "@/components/ui/library-picker-modal";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -42,9 +46,11 @@ import {
   fetchAgents,
   fetchMySkills,
   fetchSkillsCatalog,
+  fetchSpaceConnectorRules,
   forgetMemoryFact,
   listRecurringTasks,
   listSpaceAgents,
+  listSpaceConnectors,
   listSpaceFiles,
   listSpaceMemory,
   listSpaceSkills,
@@ -52,6 +58,7 @@ import {
   listSpaceThreads,
   listSpaces,
   setSpaceAgents,
+  setSpaceConnectors,
   setSpaceSkills,
   spaceFileRawUrl,
   updateMySkill,
@@ -61,6 +68,7 @@ import {
   updateRecurringTask,
   type Agent,
   type AgentInput,
+  type ConnectorRules,
   type MemoryFact,
   type MySkill,
   type SkillInfo,
@@ -210,104 +218,6 @@ function InlineEdit({
   );
 }
 
-// ── Подключение из библиотеки: ОКНО с поиском и карточками ──────────────────
-//
-// РОВНО тот же паттерн, что выбор навыков в форме агента («Мои агенты»):
-// строка поиска сверху, ниже сетка карточек «имя + описание», клик
-// переключает выбор (рамка primary + галка). Ничего нового не выдумываем.
-
-function LibraryPickerModal({
-  title,
-  items,
-  checkedIds,
-  onToggle,
-  onClose,
-  emptyText,
-}: {
-  title: string;
-  items: { id: string; name: string; description?: string }[];
-  checkedIds: string[];
-  onToggle: (id: string) => void;
-  onClose: () => void;
-  emptyText: string;
-}) {
-  const t = useT();
-  const [query, setQuery] = React.useState("");
-  const q = query.trim().toLowerCase();
-  const shown = q
-    ? items.filter((i) =>
-        `${i.name} ${i.description ?? ""}`.toLowerCase().includes(q),
-      )
-    : items;
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title={title}
-      // Тот же размер, что у формы агента: большое окно, не «домик Барби».
-      className="flex h-[80dvh] w-full max-w-5xl flex-col"
-    >
-      <div className="flex min-h-0 flex-1 flex-col gap-2">
-        {items.length === 0 ? (
-          <div className="rounded-xl border border-dashed py-8 text-center text-sm text-muted-foreground">
-            {emptyText}
-          </div>
-        ) : (
-          <>
-            <div className="relative shrink-0">
-              <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={t.agents.searchPlaceholder}
-                className="w-full rounded-lg border border-border bg-background py-2 pl-9 pr-3 text-sm outline-none placeholder:text-muted-foreground focus:border-ring"
-              />
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              {shown.length === 0 ? (
-                <p className="py-8 text-center text-sm text-muted-foreground">
-                  {t.agents.nothingFound}
-                </p>
-              ) : (
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {shown.map((item) => {
-                    const on = checkedIds.includes(item.id);
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => onToggle(item.id)}
-                        className={cn(
-                          "flex h-full items-start gap-2.5 rounded-xl border p-3 text-left transition-colors",
-                          on
-                            ? "border-primary bg-primary/5"
-                            : "border-border/60 hover:bg-accent",
-                        )}
-                      >
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium">
-                            {item.name}
-                          </span>
-                          <span className="mt-0.5 line-clamp-2 block h-8 text-xs leading-snug text-muted-foreground">
-                            {item.description}
-                          </span>
-                        </span>
-                        {on && <Check className="mt-0.5 size-4 shrink-0 text-primary" />}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </>
-        )}
-      </div>
-    </Modal>
-  );
-}
-
-
 // ── Конфигурация пространства (вкладка «Настройки» главной страницы) ────────
 //
 // Всё, что НАСТРАИВАЕТСЯ: инструкции, агенты, навыки, регулярные задачи.
@@ -347,10 +257,20 @@ function SpaceConfig({
   const t = useT();
   const sp = t.spaces;
 
-  // Вкладки конфигурации: агенты, навыки, регулярные задачи.
-  const [catalogTab, setCatalogTab] = React.useState<"agents" | "skills" | "tasks">(
-    "agents",
-  );
+  // Вкладки конфигурации: агенты, навыки, регулярные задачи, коннекторы.
+  const [catalogTab, setCatalogTab] = React.useState<
+    "agents" | "skills" | "tasks" | "connectors"
+  >("agents");
+  // Коннекторы пространства: null — ещё не загружены. Сохраняются на каждый
+  // клик, как навыки из библиотеки (toggleLinkedSkill), — кнопки «Сохранить»
+  // у вкладок нет.
+  const [connectorIds, setConnectorIds] = React.useState<string[] | null>(null);
+  // Каталог коннекторов — карточками в окно «Добавить» и строками во вкладке.
+  const connectorList = useConnectorList();
+  const connectorItems = useConnectorItems(connectorList);
+  // Правила коннекторов пространства — для всех чатов и агентов внутри.
+  const [connectorRules, setConnectorRules] = React.useState<ConnectorRules>({});
+  const [rulesFor, setRulesFor] = React.useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = React.useState(false);
   // Личная библиотека навыков — для окна подключения.
   const [mySkills, setMySkills] = React.useState<MySkill[]>([]);
@@ -400,10 +320,35 @@ function SpaceConfig({
     void fetchSkillsCatalog().then((list) => {
       if (!cancelled) setBuiltinSkills(list);
     });
+    void listSpaceConnectors(space.id).then((ids) => {
+      if (!cancelled) setConnectorIds(ids);
+    });
+    void fetchSpaceConnectorRules(space.id).then((rules) => {
+      if (!cancelled) setConnectorRules(rules);
+    });
     return () => {
       cancelled = true;
     };
   }, [space.id]);
+
+  // Список отдаём серверу целиком (PUT = replace) и показываем сразу, не
+  // дожидаясь ответа; ответ сервера — истина, им и перекрываем.
+  const changeConnectors = (ids: string[]) => {
+    setConnectorIds(ids);
+    void setSpaceConnectors(space.id, ids).then(setConnectorIds);
+  };
+  const toggleConnector = (id: string) => {
+    const cur = connectorIds ?? [];
+    changeConnectors(cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]);
+  };
+  // Правила одного коннектора пространства — сразу на сервер, как и сам набор.
+  const changeRule = (id: string, rule: ConnectorRules[string] | null) => {
+    const next = { ...connectorRules };
+    if (rule) next[id] = rule;
+    else delete next[id];
+    setConnectorRules(next);
+    void setSpaceConnectors(space.id, connectorIds ?? [], next);
+  };
 
   // Что можно подключить к пространству: ВСЯ библиотека — коробочные и личные,
   // тем же правилом, что в форме агента. Своих в пикере не показываем дважды:
@@ -508,6 +453,7 @@ function SpaceConfig({
       schedule: string;
       timezone: string;
       agent_id: string;
+      agent_config: Record<string, unknown>;
       error_policy: Record<string, unknown>;
     },
     extras: TaskExtras,
@@ -587,6 +533,7 @@ function SpaceConfig({
                   ["agents", sp.tabAgents],
                   ["skills", sp.tabSkills],
                   ["tasks", sp.settingsTasks],
+                  ["connectors", sp.tabConnectors],
                 ] as const).map(([key, label]) => (
                   <button
                     key={key}
@@ -609,7 +556,9 @@ function SpaceConfig({
                     ? sp.settingsAgentsHint
                     : catalogTab === "skills"
                       ? sp.skillsHint
-                      : sp.settingsTasksHint
+                      : catalogTab === "connectors"
+                        ? sp.connectorsHint
+                        : sp.settingsTasksHint
                 }
               />
             </div>
@@ -623,8 +572,9 @@ function SpaceConfig({
                 {sp.attachFromLibrary}
               </button>
               {/* Создание — ЕДИНЫМИ путями соответствующих разделов. У задач
-                  ассистентного пути в их разделе нет — обычная кнопка. */}
-              {catalogTab === "tasks" ? (
+                  ассистентного пути в их разделе нет — обычная кнопка. У
+                  коннекторов «Создать» нет: заводятся они в своём разделе. */}
+              {catalogTab === "connectors" ? null : catalogTab === "tasks" ? (
                 <button
                   type="button"
                   onClick={() => void openTaskCreate()}
@@ -663,7 +613,61 @@ function SpaceConfig({
             </div>
           </div>
 
-          {catalogTab === "agents" ? (
+          {catalogTab === "connectors" ? (
+            connectorIds === null || connectorItems === null ? (
+              <div className="py-6 text-center text-sm text-muted-foreground">
+                {t.files.loading}
+              </div>
+            ) : connectorIds.length === 0 ? (
+              <div className="rounded-xl border border-dashed py-10 text-center text-sm text-muted-foreground">
+                {sp.emptyConnectors}
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1">
+                {connectorIds.map((id) => {
+                  // Неизвестный id (сервис удалили из каталога) показываем как
+                  // есть — открепить его отсюда всё равно можно.
+                  const item = connectorItems.find((i) => i.id === id);
+                  return (
+                    <div
+                      key={id}
+                      className="group flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-sidebar-accent"
+                    >
+                      {item?.logo ? (
+                        <ConnectorLogo src={item.logo} className="size-4" />
+                      ) : (
+                        <Plug className="size-4 shrink-0 text-muted-foreground" />
+                      )}
+                      <div className="flex min-w-0 flex-1 flex-col">
+                        <span className="truncate text-sm">{item?.name ?? id}</span>
+                        <span className="truncate text-xs text-muted-foreground">
+                          {item?.description || "—"}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setRulesFor(id)}
+                        className={cn(
+                          "inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors hover:bg-accent hover:text-foreground",
+                          connectorRules[id] ? "text-primary" : "text-muted-foreground",
+                        )}
+                      >
+                        <SlidersHorizontal className="size-3" />
+                        {connectorRules[id] ? t.connectors.configured : t.connectors.configure}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => toggleConnector(id)}
+                        className="shrink-0 rounded-md px-2 py-1 text-xs text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/15 hover:text-destructive group-hover:opacity-100"
+                      >
+                        {sp.detach}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )
+          ) : catalogTab === "agents" ? (
             team.length === 0 ? (
               <div className="rounded-xl border border-dashed py-10 text-center text-sm text-muted-foreground">
                 {sp.emptyTeam}
@@ -833,7 +837,16 @@ function SpaceConfig({
                 onClose={() => setPickerOpen(false)}
                 emptyText={sp.emptyAttachableSkills}
               />
-            ) : (
+            ) : catalogTab === "connectors" ? (
+              <LibraryPickerModal
+                title={sp.attachFromLibrary}
+                items={connectorItems ?? []}
+                checkedIds={connectorIds ?? []}
+                onToggle={toggleConnector}
+                onClose={() => setPickerOpen(false)}
+                emptyText={t.connectors.pickerEmpty}
+              />
+            ) : catalogTab === "tasks" ? (
               <LibraryPickerModal
                 title={sp.attachFromLibrary}
                 items={freeTasks.map((task) => ({
@@ -850,7 +863,15 @@ function SpaceConfig({
                 onClose={() => setPickerOpen(false)}
                 emptyText={sp.emptyAttachable}
               />
-            ))}
+            ) : null)}
+          {rulesFor && connectorList?.find((x) => x.id === rulesFor) && (
+            <ConnectorRulesDialog
+              connector={connectorList.find((x) => x.id === rulesFor)!}
+              rule={connectorRules[rulesFor]}
+              onChange={(rule) => changeRule(rulesFor, rule)}
+              onClose={() => setRulesFor(null)}
+            />
+          )}
         </section>
 
     </div>

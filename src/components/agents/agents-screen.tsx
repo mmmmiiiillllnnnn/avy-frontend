@@ -28,15 +28,20 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { AgentConnectionsButton } from "@/components/agents/agent-connections";
+import { ConnectorLogo, ConnectorsPanel } from "@/components/agents/connectors-panel";
+import { useConnectorItems, useConnectorList } from "@/components/agents/connector-items";
+import { ConnectorRulesDialog } from "@/components/agents/connector-rules-dialog";
 import { connectionForms } from "@/lib/connection-card";
 import { invalidateAgents } from "@/hooks/use-agents";
 import { MessageResponse } from "@/components/ai-elements/message";
-import { useT } from "@/i18n/i18n-context";
+import { useLocale, useT } from "@/i18n/i18n-context";
 import { useAgentLibrary } from "@/hooks/use-agents";
 import {
+  connectorSummary,
   createMySkill,
   deleteMySkill,
   deleteMySkillFile,
+  fetchConnectors,
   fetchMiddleware,
   fetchMySkillFile,
   fetchMySkillFiles,
@@ -51,6 +56,8 @@ import {
   uploadMySkillFiles,
   type Agent,
   type AgentInput,
+  type ConnectorInfo,
+  type ConnectorRules,
   type MySkill,
   type MySkillInput,
   type SkillDetail,
@@ -618,11 +625,24 @@ export function AgentForm({
   const [enabled, setEnabled] = React.useState(agent?.enabled ?? true);
   const [delegatable, setDelegatable] = React.useState(agent?.delegatable ?? false);
   const [skills, setSkills] = React.useState<string[]>(agent?.skills ?? []);
-  // Открытая вкладка формы: сам агент, его навыки или инструменты.
-  const [pane, setPane] = React.useState<"agent" | "skills" | "tools">("agent");
+  // Коннекторы — ЯВНЫМ списком id. Ассистент видит все подключённые сервисы
+  // сам, а агент — только объявленные; пусто значит «ни одного», третьего
+  // состояния (как у инструментов) здесь нет.
+  const [connectors, setConnectors] = React.useState<string[]>(
+    Array.isArray(cfg.connectors) ? (cfg.connectors as string[]) : [],
+  );
+  // Правила коннекторов у агента: какие инструменты ему доступны и что он
+  // подтверждает (connectors/rules.py). Нет записи — как в общих настройках.
+  const [connectorRules, setConnectorRules] = React.useState<ConnectorRules>(
+    (cfg.connector_rules as ConnectorRules | undefined) ?? {},
+  );
+  const [rulesFor, setRulesFor] = React.useState<string | null>(null);
+  // Открытая вкладка формы: сам агент, его навыки, инструменты или коннекторы.
+  const [pane, setPane] = React.useState<"agent" | "skills" | "tools" | "connectors">("agent");
   // Поиск по навыкам на своей вкладке. Их десяток и будет больше — без поиска
   // выбрать нужный значит просматривать всю сетку глазами.
   const [skillQuery, setSkillQuery] = React.useState("");
+  const [connectorQuery, setConnectorQuery] = React.useState("");
 
   // Тулы и middleware: null = «не задано» (агент получит набор по умолчанию),
   // массив = точный состав, в том числе ПУСТОЙ. Три состояния, а не два, и
@@ -638,7 +658,10 @@ export function AgentForm({
   // файлом, а не этой формой.
   const [toolsCombined, setToolsCombined] = React.useState<string[] | null>(() => {
     const t = cfg.tools as string[] | undefined;
-    const m = cfg.middleware as string[] | undefined;
+    // `connectors` — не выбор, а каркас: состав сервисов агента задаётся на
+    // своей вкладке. Попади это имя в middleware (агент заведён файлом) — при
+    // сохранении оно ушло бы в тулы как незнакомое, и бэкенд отказал бы форме.
+    const m = (cfg.middleware as string[] | undefined)?.filter((n) => n !== "connectors");
     return t === undefined && m === undefined ? null : [...(t ?? []), ...(m ?? [])];
   });
 
@@ -656,6 +679,9 @@ export function AgentForm({
   const [mySkills, setMySkills] = React.useState<MySkill[]>([]);
   const [availableTools, setAvailableTools] = React.useState<string[]>([]);
   const [availableMw, setAvailableMw] = React.useState<string[]>([]);
+  // Коннекторы — карточками в окно выбора (вкладка «Коннекторы»).
+  const connectorList = useConnectorList();
+  const connectorItems = useConnectorItems(connectorList);
 
   React.useEffect(() => {
     let alive = true;
@@ -715,6 +741,13 @@ export function AgentForm({
     );
   }, [available, skillQuery]);
 
+  const shownConnectors = React.useMemo(() => {
+    const q = connectorQuery.trim().toLowerCase();
+    const all = connectorItems ?? [];
+    if (!q) return all;
+    return all.filter((c) => `${c.id} ${c.name} ${c.description}`.toLowerCase().includes(q));
+  }, [connectorItems, connectorQuery]);
+
   const canSave = name.trim().length > 0 && !busy;
 
   const submit = () => {
@@ -747,6 +780,13 @@ export function AgentForm({
       if (mw.length > 0 || cfg.middleware !== undefined) config.middleware = mw;
       if (ts.length > 0 || cfg.tools !== undefined) config.tools = ts;
     }
+    // Пишем всегда, и пустой тоже: у коннекторов «нет ключа» и «пустой
+    // список» значат одно — агент не видит ни одного.
+    config.connectors = connectors;
+    // Правила — только у выбранных: убранный коннектор уносит свои с собой.
+    const rules = Object.fromEntries(Object.entries(connectorRules).filter(([id]) => connectors.includes(id)));
+    if (Object.keys(rules).length > 0) config.connector_rules = rules;
+    else delete config.connector_rules;
 
     onSubmit({
       name: name.trim(),
@@ -771,6 +811,7 @@ export function AgentForm({
             ["agent", a.agentTabMain, 0],
             ["skills", a.fieldSkills, skills.length],
             ["tools", a.fieldTools, toolsCombined?.length ?? 0],
+            ["connectors", a.fieldConnectors, connectors.length],
           ] as const).map(([key, label, count]) => (
             <button
               key={key}
@@ -978,7 +1019,7 @@ export function AgentForm({
             )}
           </div>
         </div>
-      ) : (
+      ) : pane === "tools" ? (
         /* Инструменты — ОДНО поле на два реестра (tools и middleware). Граница
            между ними техническая: веб и погода собираются фабрикой тулов, а
            память и субагенты — слоем конвейера. Человек выбирает не это, а что
@@ -1001,6 +1042,107 @@ export function AgentForm({
             nothingFound={a.nothingFound}
           />
         </div>
+      ) : (
+        /* Коннекторы — какие внешние сервисы (почта, календарь, свой MCP)
+           агент может брать. Состав явный: что не отмечено, того агент не
+           видит (все подключённые разом видит только ассистент). */
+        <div className="flex min-h-0 flex-1 flex-col gap-2">
+          <FieldLabel label={a.fieldConnectors} hint={a.fieldConnectorsHint} />
+          <div className="relative shrink-0">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={connectorQuery}
+              onChange={(e) => setConnectorQuery(e.target.value)}
+              placeholder={a.searchPlaceholder}
+              className="w-full rounded-lg border border-border bg-background py-2 pl-9 pr-3 text-sm outline-none placeholder:text-muted-foreground focus:border-ring"
+            />
+          </div>
+
+          {/* Та же сетка карточек, что у навыков рядом: логотип, название,
+              описание в две строки, галочка у выбранного. */}
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {connectorItems === null ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">{t.files.loading}</p>
+            ) : connectorItems.length === 0 ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                {t.connectors.pickerEmpty}
+              </p>
+            ) : shownConnectors.length === 0 ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                {a.nothingFound}
+              </p>
+            ) : (
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {shownConnectors.map((item) => {
+                const on = connectors.includes(item.id);
+                return (
+                  // Обёртка ради «Настроить»: кнопку в кнопку не вложить.
+                  <div key={item.id} className="relative h-full">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setConnectors((cur) =>
+                        on ? cur.filter((x) => x !== item.id) : [...cur, item.id],
+                      )
+                    }
+                    className={cn(
+                      "flex h-full items-start gap-2.5 rounded-xl border p-3 text-left transition-colors",
+                      // Снизу место под «Настроить», чтобы оно не наезжало на описание.
+                      on
+                        ? "border-primary bg-primary/5 pb-8"
+                        : "border-border/60 hover:bg-accent",
+                    )}
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-1.5">
+                        {item.logo && <ConnectorLogo src={item.logo} className="size-4" />}
+                        <span className="min-w-0 truncate text-sm font-medium">
+                          {item.name}
+                        </span>
+                        {item.badge}
+                      </span>
+                      <span className="mt-0.5 line-clamp-2 block h-8 text-xs leading-snug text-muted-foreground">
+                        {item.description}
+                      </span>
+                    </span>
+                    {on && <Check className="mt-0.5 size-4 shrink-0 text-primary" />}
+                  </button>
+                  {/* Свои правила коннектора у этого агента: доступные
+                      инструменты и подтверждения (окно общее с задачей и
+                      пространством). Только у выбранного. */}
+                  {on && (
+                    <button
+                      type="button"
+                      onClick={() => setRulesFor(item.id)}
+                      className="absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    >
+                      <SlidersHorizontal className="size-3" />
+                      {connectorRules[item.id] ? t.connectors.configured : t.connectors.configure}
+                    </button>
+                  )}
+                  </div>
+                );
+              })}
+            </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {rulesFor && connectorList?.find((x) => x.id === rulesFor) && (
+        <ConnectorRulesDialog
+          connector={connectorList.find((x) => x.id === rulesFor)!}
+          rule={connectorRules[rulesFor]}
+          onChange={(rule) =>
+            setConnectorRules((cur) => {
+              const next = { ...cur };
+              if (rule) next[rulesFor] = rule;
+              else delete next[rulesFor];
+              return next;
+            })
+          }
+          onClose={() => setRulesFor(null)}
+        />
       )}
 
       <div className="mt-4 flex shrink-0 items-center justify-end gap-2 border-t border-border/60 pt-4">
@@ -2089,6 +2231,7 @@ export function AgentsScreen({
   onAskAssistant?: (opener: string) => void;
 }) {
   const t = useT();
+  const { locale } = useLocale();
   const a = t.agents;
   const api = useAgentLibrary();
   const [formOpen, setFormOpen] = React.useState(false);
@@ -2097,6 +2240,8 @@ export function AgentsScreen({
   // Удаление спрашиваем: вместе с агентом уходит его память, и вернуть нечем.
   const [deleting, setDeleting] = React.useState<Agent | null>(null);
   const [tab, setTab] = React.useState<"agents" | "skills" | "connectors">("agents");
+  // Окно «Свой сервер» на вкладке коннекторов: кнопка стоит в шапке раздела.
+  const [customConnector, setCustomConnector] = React.useState(false);
 
   // Поиск, фильтры и сортировка — ОБЩИЕ для вкладок, а не свои у каждой:
   // человек ищет одинаково, и сброшенный при переключении запрос выглядел бы
@@ -2160,6 +2305,15 @@ export function AgentsScreen({
     };
   }, [viewingBuiltin]);
   const [forking, setForking] = React.useState(false);
+
+  // Коннекторы грузим здесь, а не в панели: по ним работают те же поиск,
+  // «Мои» и сортировка, что и по агентам с навыками, и общий поиск их тоже
+  // показывает.
+  const [connectors, setConnectors] = React.useState<ConnectorInfo[] | null>(null);
+  const reloadConnectors = React.useCallback(() => {
+    fetchConnectors().then(setConnectors);
+  }, []);
+  React.useEffect(reloadConnectors, [reloadConnectors]);
 
   const reloadMySkills = React.useCallback(async () => {
     setMySkills(await fetchMySkills());
@@ -2252,6 +2406,26 @@ export function AgentsScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [skills, q, mineOnly, category, sort]);
 
+  // «Мои» у коннекторов — подключённые и свои серверы: то, чем человек уже
+  // пользуется. «Сначала новые» — по времени подключения, у остальных даты
+  // нет, они держат порядок имён.
+  const visibleConnectors = React.useMemo(() => {
+    let list = (connectors ?? []).filter((c) =>
+      hit(c.title, connectorSummary(c, locale), c.url ?? undefined),
+    );
+    if (mineOnly) list = list.filter((c) => c.connected || c.custom);
+    if (category) list = [];
+    return [...list].sort((x, y) => {
+      if (sort === "recent") {
+        const dx = x.connected ? (x.updated_at ?? "") : "";
+        const dy = y.connected ? (y.updated_at ?? "") : "";
+        if (dx !== dy) return dy.localeCompare(dx);
+      }
+      return x.title.localeCompare(y.title);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectors, q, mineOnly, category, sort, locale]);
+
   const submitSkill = async (body: MySkillInput, files: File[] = []) => {
     if (!skillForm) return;
     const creating = skillForm.skill === null;
@@ -2315,6 +2489,19 @@ export function AgentsScreen({
     }
   };
 
+  // Пустой список (ничего не найдено, «Мои» без подключённых): карточек нет,
+  // но окно «Свой сервер» из шапки должно открываться — панель без разделов
+  // рисует только его.
+  const customConnectorDialog = (
+    <ConnectorsPanel
+      items={connectors ?? []}
+      sections={[]}
+      onChanged={reloadConnectors}
+      customOpen={customConnector}
+      onCustomOpenChange={setCustomConnector}
+    />
+  );
+
   return (
     <div className="min-h-0 flex-1 overflow-auto">
       <div className="flex w-full flex-col gap-5 p-6">
@@ -2343,19 +2530,17 @@ export function AgentsScreen({
             ))}
           </div>
 
-          {tab !== "connectors" && (
-            <ListControls
-              query={query}
-              onQuery={setQuery}
-              mineOnly={mineOnly}
-              onMineOnly={setMineOnly}
-              categories={categories}
-              category={category}
-              onCategory={setCategory}
-              sort={sort}
-              onSort={setSort}
-            />
-          )}
+          <ListControls
+            query={query}
+            onQuery={setQuery}
+            mineOnly={mineOnly}
+            onMineOnly={setMineOnly}
+            categories={categories}
+            category={category}
+            onCategory={setCategory}
+            sort={sort}
+            onSort={setSort}
+          />
 
           <div className="ml-auto shrink-0">
             {tab === "agents" ? (
@@ -2384,7 +2569,18 @@ export function AgentsScreen({
                 }}
                 onAssisted={() => onAskAssistant?.(a.skillAssistantOpener)}
               />
-            ) : null}
+            ) : (
+              // У коннектора один путь — форма; тот же вид кнопки, что у
+              // «Создать», но без меню выбора.
+              <button
+                type="button"
+                onClick={() => setCustomConnector(true)}
+                className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+              >
+                <Plus className="size-4" />
+                {t.connectors.custom}
+              </button>
+            )}
           </div>
         </div>
 
@@ -2392,10 +2588,13 @@ export function AgentsScreen({
             всё найденное одним списком с заголовками по типу. Иначе человек
             искал бы «pdf» на вкладке агентов и не узнал, что есть такой навык. */}
         {q ? (
-          visibleAgents.length === 0 && visibleSkills.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-border/60 py-12 text-center text-sm text-muted-foreground">
-              {a.nothingFound}
-            </div>
+          visibleAgents.length === 0 && visibleSkills.length === 0 && visibleConnectors.length === 0 ? (
+            <>
+              <div className="rounded-xl border border-dashed border-border/60 py-12 text-center text-sm text-muted-foreground">
+                {a.nothingFound}
+              </div>
+              {customConnectorDialog}
+            </>
           ) : (
             <div className="flex flex-col gap-5">
               {visibleAgents.length > 0 && (
@@ -2444,12 +2643,42 @@ export function AgentsScreen({
                   </div>
                 </div>
               )}
+              {/* Всегда в дереве: пустой раздел не рисуется, а окно «Свой
+                  сервер» из шапки должно открываться и во время поиска. */}
+              <ConnectorsPanel
+                items={connectors ?? []}
+                sections={[{ title: a.groupConnectors, items: visibleConnectors }]}
+                onChanged={reloadConnectors}
+                customOpen={customConnector}
+                onCustomOpenChange={setCustomConnector}
+              />
             </div>
           )
         ) : tab === "connectors" ? (
-          <div className="rounded-xl border border-dashed border-border/60 py-12 text-center text-sm text-muted-foreground">
-            {a.connectorsSoon}
-          </div>
+          connectors === null ? (
+            <div className="py-10 text-center text-sm text-muted-foreground">
+              {t.files.loading}
+            </div>
+          ) : visibleConnectors.length === 0 ? (
+            <>
+              <div className="rounded-xl border border-dashed border-border/60 py-10 text-center text-sm text-muted-foreground">
+                {a.nothingFound}
+              </div>
+              {customConnectorDialog}
+            </>
+          ) : (
+            /* Те же два раздела, что у навыков: свои серверы и каталог. */
+            <ConnectorsPanel
+              items={connectors}
+              sections={[
+                { title: a.groupConnectorsMine, items: visibleConnectors.filter((c) => c.custom) },
+                { title: a.groupSkillsBuiltin, items: visibleConnectors.filter((c) => !c.custom) },
+              ]}
+              onChanged={reloadConnectors}
+              customOpen={customConnector}
+              onCustomOpenChange={setCustomConnector}
+            />
+          )
         ) : tab === "skills" ? (
           skills === null ? (
             <div className="py-10 text-center text-sm text-muted-foreground">

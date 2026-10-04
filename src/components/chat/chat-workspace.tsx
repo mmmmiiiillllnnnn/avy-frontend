@@ -32,7 +32,7 @@ import { useChat } from "@/hooks/use-chat";
 import { useFiles } from "@/hooks/use-files";
 import { useContextUsage } from "@/hooks/use-context-usage";
 import { useUsage } from "@/hooks/use-usage";
-import { createSpaceThread, fetchThreadMessages, sessionFileRawUrl } from "@/lib/api";
+import { createSpaceThread, fetchThreadHistory, sessionFileRawUrl } from "@/lib/api";
 import { chatStreams } from "@/lib/chat-streams";
 import { useT } from "@/i18n/i18n-context";
 
@@ -318,8 +318,8 @@ export function ChatWorkspace({
   // сам это проверяет).
   const reloadHistory = useCallback(async () => {
     if (!activeId) return;
-    const history = await fetchThreadMessages(activeId);
-    chat.setHistory(history);
+    const history = await fetchThreadHistory(activeId);
+    chat.setHistory(history.messages, history.pending);
   }, [activeId, chat]);
   useEffect(() => {
     reloadHistoryRef.current = () => void reloadHistory();
@@ -353,10 +353,10 @@ export function ChatWorkspace({
       return;
     }
     (async () => {
-      const history = await fetchThreadMessages(activeId);
+      const history = await fetchThreadHistory(activeId);
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          chat.setHistory(history);
+          chat.setHistory(history.messages, history.pending);
         });
       });
     })();
@@ -708,6 +708,10 @@ export function ChatWorkspace({
                 // пустой массив вернёт «The user did not answer» (см.
                 // tools/ask_user.py) — агент продолжит и спросит словами.
                 onQuestionsDismiss={() => chat.answerQuestions([])}
+                // Просьба подключить сервис (тула connector): карточка
+                // «Подключить» вместо поля ввода, ответ — подключил или нет.
+                pendingConnector={chat.pendingConnector}
+                onConnectorAnswer={chat.answerConnector}
               />
           </FileChipProvider>
         </div>

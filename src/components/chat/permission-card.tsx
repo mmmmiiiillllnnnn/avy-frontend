@@ -48,9 +48,13 @@ export function PermissionCard({
   const [rejecting, setRejecting] = useState(false);
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
+  // Карточка появилась только что — первые 300 мс нажатия не принимаем:
+  // второй клик двойного нажатия на предыдущей карточке иначе ответил бы
+  // на эту, которую человек ещё не видел.
+  const [shownAt] = useState(() => Date.now());
 
   const decide = (decision: "approve" | "reject", text?: string) => {
-    if (busy) return;
+    if (busy || Date.now() - shownAt < 300) return;
     setBusy(true);
     onDecide(decision, text?.trim() || undefined);
   };

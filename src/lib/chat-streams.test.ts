@@ -21,6 +21,7 @@ vi.mock("@/lib/api", () => ({
   attachChat: () => { throw new Error("не ожидалось"); },
   deliverSubagentReports: async function* () { yield { type: "done" }; },
   fetchThreadMessages: async () => [],
+  fetchThreadHistory: async () => ({ messages: [], pending: [] }),
   interjectTurn: () => { throw new Error("не ожидалось"); },
   stopChat: async () => {},
   stopSubagent: async () => {},
@@ -212,5 +213,34 @@ describe("субагент субагента", () => {
     expect(search.kind === "tool" && search.sources?.[0].url).toBe("https://x");
     expect(subagentText(inner)).toBe("нашёл");
     chatStreams.detach(threadId);
+  });
+});
+
+
+describe("карточки хода на паузе переживают перечитывание истории", () => {
+  it("setPending восстанавливает подтверждения, вопрос и параметры продолжения", () => {
+    const t = "pending-thread";
+    chatStreams.setTurnParams(t, { modelId: "qwen3.8-flash", effort: "medium", mode: null });
+    chatStreams.setHistory(t, [{ role: "user", content: "удали файл" }]);
+    chatStreams.setPending(t, [
+      { type: "permission_request", interrupt_id: "i1", tool: "mcp__yandex-disk__trash_by_query",
+        args: { query: "old" }, description: "В корзину?" },
+      { type: "permission_request", interrupt_id: "i1", tool: "mcp__yandex-disk__share", args: {}, description: "" },
+      { type: "ask_user_request", interrupt_id: "i2", questions: [{ question: "Какой?" }] },
+    ]);
+    const s = chatStreams.getState(t);
+    expect(s.pendingPermissions.map((p) => p.tool)).toEqual([
+      "mcp__yandex-disk__trash_by_query", "mcp__yandex-disk__share",
+    ]);
+    expect(s.pendingPermissions[0].description).toBe("В корзину?");
+    expect(s.pendingQuestions?.interruptId).toBe("i2");
+    expect(s.pendingConnector).toBeNull();
+  });
+
+  it("новая загрузка истории без pending карточку не подменяет чужим", () => {
+    const t = "pending-thread-2";
+    chatStreams.setHistory(t, []);
+    chatStreams.setPending(t, []);
+    expect(chatStreams.getState(t).pendingPermissions).toEqual([]);
   });
 });

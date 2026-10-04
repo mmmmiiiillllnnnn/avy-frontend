@@ -5,6 +5,7 @@ import { useCallback, useEffect, useSyncExternalStore } from "react";
 import {
   uploadSessionFiles,
   type AskUserAnswer,
+  type PendingEvent,
   type SubagentReport,
   type UploadedFile,
 } from "@/lib/api";
@@ -301,8 +302,12 @@ export function useChat(opts: UseChatOptions = {}) {
         feedback?: "up" | "down" | null;
         report?: SubagentReport;
       }[],
+      // Что ждёт ответа человека (карточки хода на паузе) — из той же выдачи истории.
+      pending?: PendingEvent[],
     ) => {
-      if (threadId) chatStreams.setHistory(threadId, history);
+      if (!threadId) return;
+      chatStreams.setHistory(threadId, history);
+      if (pending?.length) chatStreams.setPending(threadId, pending);
     },
     [threadId],
   );
@@ -337,6 +342,14 @@ export function useChat(opts: UseChatOptions = {}) {
     },
     [threadId],
   );
+  // Просьба подключить сервис (тула connector): та же пауза, своя карточка.
+  const pendingConnector = state?.pendingConnector ?? null;
+  const answerConnector = useCallback(
+    (connected: boolean) => {
+      if (threadId) void chatStreams.answerConnector(threadId, connected);
+    },
+    [threadId],
+  );
 
   return {
     messages,
@@ -358,6 +371,8 @@ export function useChat(opts: UseChatOptions = {}) {
     resolvePermission,
     pendingQuestions,
     answerQuestions,
+    pendingConnector,
+    answerConnector,
     stopBackground,
   };
 }

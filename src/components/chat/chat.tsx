@@ -4,6 +4,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { AIChatInput } from "@/components/ui/ai-chat-input";
 import { QuestionCard, type PendingQuestions } from "@/components/chat/question-card";
+import { ConnectorCard, type PendingConnector } from "@/components/chat/connector-card";
 import { PermissionCard } from "@/components/chat/permission-card";
 import type { PendingPermission } from "@/lib/chat-streams";
 import { foldParts } from "@/lib/chain-fold";
@@ -115,6 +116,10 @@ type ChatProps = {
   onQuestionsSubmit?: (answers: AskUserAnswer[]) => void;
   /** Esc на карточке — снять её и остановить ход (граф уже на паузе в чекпойнте). */
   onQuestionsDismiss?: () => void;
+  /** Просьба агента подключить сервис (тула connector): та же пауза, карточка
+   *  «Подключить». Ответ — подключил (true) или отказался (false). */
+  pendingConnector?: PendingConnector | null;
+  onConnectorAnswer?: (connected: boolean) => void;
   /** Очередь подтверждений необратимых действий (`confirm:` в AGENT.md агента).
    *  Ход на паузе, карточка над полем ввода — как у вопроса. */
   pendingPermissions?: PendingPermission[];
@@ -160,6 +165,8 @@ export function Chat({
   pendingQuestions,
   onQuestionsSubmit,
   onQuestionsDismiss,
+  pendingConnector,
+  onConnectorAnswer,
   pendingPermissions,
   onPermissionDecision,
 }: ChatProps) {
@@ -174,7 +181,8 @@ export function Chat({
   const confirming = Boolean(
     pendingPermissions && pendingPermissions.length > 0 && onPermissionDecision,
   );
-  const asking = Boolean(pendingQuestions && onQuestionsSubmit) || confirming;
+  const connecting = Boolean(pendingConnector && onConnectorAnswer);
+  const asking = Boolean(pendingQuestions && onQuestionsSubmit) || confirming || connecting;
   // Вложения композера держит чат (а не инпут): тогда drag&drop ловится по всей
   // области чата (#chat-area), а не только по капсуле инпута. Файлы грузятся в
   // песочницу СРАЗУ при прикреплении (кольцо прогресса на чипе, Send ждёт).
@@ -388,6 +396,10 @@ export function Chat({
         {confirming && (
           <div ref={inputWrapRef} className="pointer-events-auto mx-auto w-full max-w-3xl">
             <PermissionCard
+              // Своя карточка на каждую заявку очереди: иначе React берёт тот
+              // же компонент, и кнопки остаются погашенными после ответа на
+              // предыдущую (busy) — до перезахода в тред.
+              key={`${pendingPermissions![0].interruptId ?? "p"}-${pendingPermissions!.length}`}
               pending={pendingPermissions![0]}
               queueSize={pendingPermissions!.length}
               onDecide={onPermissionDecision!}
@@ -395,7 +407,7 @@ export function Chat({
           </div>
         )}
 
-        {asking && !confirming && (
+        {asking && !confirming && !connecting && (
           // ТОТ ЖЕ ref, что у капсулы: карточка и поле ввода — взаимоисключающие
           // узлы, в DOM ровно один из них, и --input-h считается по тому, что
           // смонтировано. Так лента резервирует место и под карточку, не
@@ -407,6 +419,11 @@ export function Chat({
               onSubmit={onQuestionsSubmit!}
               onDismiss={onQuestionsDismiss}
             />
+          </div>
+        )}
+        {connecting && (
+          <div ref={inputWrapRef} className="pointer-events-auto mx-auto w-full max-w-3xl">
+            <ConnectorCard pending={pendingConnector!} onAnswer={onConnectorAnswer!} />
           </div>
         )}
 

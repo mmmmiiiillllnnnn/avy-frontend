@@ -17,6 +17,7 @@ vi.mock("@/lib/api", () => ({
   attachChat: () => { throw new Error("не ожидалось"); },
   deliverSubagentReports: async function* () { yield { type: "done" }; },
   fetchThreadMessages: async () => [],
+  fetchThreadHistory: async () => ({ messages: [], pending: [] }),
   interjectTurn: () => { throw new Error("не ожидалось"); },
   stopChat: async () => {},
   stopSubagent: async () => {},
@@ -38,7 +39,7 @@ function makeDeps() {
         state.pendingPermissions = patch.pendingPermissions;
       },
       consume: async () => {},
-      nextId: () => "id",
+      resumeBubble: () => "id",
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any,
     state,

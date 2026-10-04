@@ -476,6 +476,10 @@ export type Dictionary = {
      *  (`web`, `memory`) технические, человеку их показывать нельзя. */
     toolNames: Record<string, { label: string; hint: string }>;
     useDefaults: string;
+    /** Вкладка коннекторов: явный список сервисов агента. Пусто — не видит
+     *  ни одного (у ассистента иначе: он видит все подключённые). */
+    fieldConnectors: string;
+    fieldConnectorsHint: string;
     enabledLabel: string;
     enabledHint: string;
     delegatableLabel: string;
@@ -495,7 +499,6 @@ export type Dictionary = {
     sortName: string;
     sortRecent: string;
     nothingFound: string;
-    connectorsSoon: string;
     createSkill: string;
     /** Просмотр коробочного навыка: файл без текстового вида, копия в свой. */
     skillFileNotShown: string;
@@ -507,6 +510,7 @@ export type Dictionary = {
     /** Заголовки двух групп в каталоге навыков. */
     groupSkillsMine: string;
     groupSkillsBuiltin: string;
+    groupConnectorsMine: string;
     groupConnectors: string;
     /** Форма своего навыка. */
     /** Заготовка разговора для пути «с помощью ассистента» у навыка. */
@@ -577,6 +581,9 @@ export type Dictionary = {
     emptyAttachableSkills: string;
     tabAgents: string;
     tabSkills: string;
+    tabConnectors: string;
+    connectorsHint: string;
+    emptyConnectors: string;
     attachFromLibrary: string;
     newChatDefault: string;
     tabOverview: string;
@@ -647,6 +654,9 @@ export type Dictionary = {
     timezoneLabel: string;
     agentLabel: string;
     agentDefault: string;
+    /** Коннекторы прогона — ДОБАВЛЯЮТСЯ к набору агента, как у пространства. */
+    connectorsLabel: string;
+    connectorsHint: string;
     instructionLabel: string;
     instructionHint: string;
     instructionPlaceholder: string;
@@ -702,6 +712,94 @@ export type Dictionary = {
     weekdayNames: string[];
     createFailed: string;
     alreadyRunning: string;
+  };
+  connectors: {
+    custom: string;
+    customChip: string;
+    customTitle: string;
+    customIntro: string;
+    customFile: string;
+    nameLabel: string;
+    namePlaceholder: string;
+    urlLabel: string;
+    authLabel: string;
+    authOAuth: string;
+    authToken: string;
+    authNone: string;
+    continueToSignIn: string;
+    connected: string;
+    notConnected: string;
+    needsReauth: string;
+    pending: string;
+    unavailableShort: string;
+    unavailable: (env: string) => string;
+    connect: string;
+    reconnect: string;
+    disconnect: string;
+    notNow: string;
+    signIn: (title: string) => string;
+    signInHint: string;
+    waiting: string;
+    oauthFailed: string;
+    /** Вход кодом устройства (Яндекс ID): код вводится на странице сервиса. */
+    deviceStep: (url: string) => string;
+    deviceOpen: string;
+    deviceCopy: string;
+    deviceCopied: string;
+    deviceWaiting: (left: string) => string;
+    deviceExpired: string;
+    deviceRetry: string;
+    deviceFailed: (reason: string) => string;
+    or: string;
+    tokenLabel: string;
+    tokenPlaceholder: string;
+    connectWithToken: string;
+    showTools: string;
+    toolsCount: (n: number) => string;
+    toolsFailed: string;
+    site: string;
+    privacy: string;
+    cardTitle: (title: string) => string;
+    cardReauth: (title: string) => string;
+    cardHint: string;
+    cardReauthHint: string;
+    cancel: string;
+    close: string;
+    toolsTitle: string;
+    toolsHint: string;
+    toolsBeforeConnect: string;
+    toolsLoading: string;
+    toolsEmpty: string;
+    noSummary: string;
+    /** Шаги подключения и список объектов подключения (чаты бота). */
+    guideTitle: string;
+    resourcesRefresh: string;
+    resourcesAdd: string;
+    resourcesRemove: string;
+    resourcesLoading: string;
+    resourcesEmpty: string;
+    /** Подтверждения и доступность инструментов. */
+    confirmColumn: string;
+    availableColumn: string;
+    confirmHint: string;
+    autoApprove: string;
+    autoApproveHint: string;
+    resetDefaults: string;
+    configure: string;
+    configured: string;
+    rulesTitle: (title: string) => string;
+    rulesHint: string;
+    rulesUnattended: string;
+    rulesInherited: string;
+    rulesInheritReset: string;
+    rulesAllTools: string;
+    rulesNeedConnect: string;
+    done: string;
+    /** Выбор коннекторов (PickerField / LibraryPickerModal) у агента, задачи, пространства. */
+    add: string;
+    pickerTitle: string;
+    noneSelected: string;
+    pickerEmpty: string;
   };
 };
 
@@ -1128,6 +1226,9 @@ const ru: Dictionary = {
       },
     },
     useDefaults: "По умолчанию",
+    fieldConnectors: "Коннекторы",
+    fieldConnectorsHint:
+      "Сервисы, которые агент может использовать. Ничего не выбрано — агент их не видит. Неподключённый сервис агент попросит подключить, когда он понадобится.",
     enabledLabel: "Доступен как режим",
     enabledHint:
       "Вы сможете запускать агента как отдельный чат через параметр «Режим» в поле ввода.",
@@ -1148,7 +1249,6 @@ const ru: Dictionary = {
     sortName: "По названию",
     sortRecent: "Сначала новые",
     nothingFound: "Ничего не найдено",
-    connectorsSoon: "Коннекторы скоро",
     createSkill: "Создать навык",
     skillFileNotShown: "Этот файл не показать текстом — картинка, архив или слишком большой.",
     skillFork: "Скопировать",
@@ -1157,6 +1257,7 @@ const ru: Dictionary = {
     groupSkills: "Навыки",
     groupSkillsMine: "Мои навыки",
     groupSkillsBuiltin: "Встроенные",
+    groupConnectorsMine: "Мои коннекторы",
     groupConnectors: "Коннекторы",
     skillAssistantOpener:
       "Хочу завести свой навык. Сейчас опишу работу, которую делаю регулярно, — надо, чтобы она всегда делалась одинаково.",
@@ -1234,6 +1335,9 @@ const ru: Dictionary = {
     emptyAttachableSkills: "Свободных навыков нет — все уже подключены или библиотека пуста.",
     tabAgents: "Агенты",
     tabSkills: "Навыки",
+    tabConnectors: "Коннекторы",
+    connectorsHint: "Сервисы, которые видят агенты в чатах пространства. Ничего не выбрано — не видят ни одного.",
+    emptyConnectors: "Коннекторов пока нет. Добавьте из подключённых сервисов.",
     attachFromLibrary: "Добавить",
     newChatDefault: "По умолчанию",
     tabOverview: "Обзор",
@@ -1312,6 +1416,8 @@ const ru: Dictionary = {
     timezoneLabel: "Часовой пояс",
     agentLabel: "Агент",
     agentDefault: "Ассистент (по умолчанию)",
+    connectorsLabel: "Коннекторы",
+    connectorsHint: "Добавляются к сервисам агента на время прогона, а не заменяют их.",
     instructionLabel: "Инструкции",
     instructionHint: "Опишите словами, что нужно делать при каждом запуске — как задание человеку.",
     instructionPlaceholder: "Опишите, что должно происходить при каждом запуске…",
@@ -1375,6 +1481,90 @@ const ru: Dictionary = {
     ],
     createFailed: "Не удалось сохранить задачу",
     alreadyRunning: "Задача уже выполняется",
+  },
+  connectors: {
+    custom: "Свой сервер",
+    customChip: "свой",
+    customTitle: "Свой MCP-сервер",
+    customIntro: "Любой удалённый MCP-сервер по адресу (streamable HTTP).",
+    customFile: "Файл",
+    nameLabel: "Название",
+    namePlaceholder: "Например, CRM компании",
+    urlLabel: "Адрес сервера",
+    authLabel: "Вход",
+    authOAuth: "Вход в сервис",
+    authToken: "Токен",
+    authNone: "Без входа",
+    continueToSignIn: "Далее — вход",
+    connected: "Подключено",
+    notConnected: "Не подключено",
+    needsReauth: "Нужен повторный вход",
+    pending: "Нужно подключить",
+    unavailableShort: "недоступен",
+    unavailable: (env) => `Недоступно на этой установке: на сервере не задан ${env}.`,
+    connect: "Подключить",
+    reconnect: "Войти заново",
+    disconnect: "Отключить",
+    notNow: "Не сейчас",
+    signIn: (title) => `Войти через ${title}`,
+    signInHint: "Откроется окно сервиса. После входа вернитесь сюда — подключение завершится само.",
+    waiting: "Ждём вход…",
+    oauthFailed: "Вход не удался. Попробуйте ещё раз.",
+    deviceStep: (url) => `Откройте ${url}, введите этот код и разрешите доступ.`,
+    deviceOpen: "Открыть страницу входа",
+    deviceCopy: "Скопировать код",
+    deviceCopied: "Скопировано",
+    deviceWaiting: (left) => `Ждём подтверждения · код действует ещё ${left}`,
+    deviceExpired: "Код истёк — получите новый.",
+    deviceRetry: "Получить новый код",
+    deviceFailed: (reason) => `Вход не удался: ${reason}`,
+    or: "или",
+    tokenLabel: "Токен доступа",
+    tokenPlaceholder: "Вставьте токен",
+    connectWithToken: "Подключить по токену",
+    showTools: "Показать инструменты",
+    toolsCount: (n) => `Инструментов: ${n}`,
+    toolsFailed: "Не удалось получить список инструментов.",
+    site: "Сайт",
+    privacy: "Токены хранятся в зашифрованном виде и используются только для запросов к сервису от вашего имени.",
+    cardTitle: (title) => `Avy просит подключить ${title}`,
+    cardReauth: (title) => `Нужно заново войти в ${title}`,
+    cardHint: "Подключите сервис, и агент продолжит работу с ним. Или откажитесь — он справится без него.",
+    cardReauthHint: "Доступ к сервису истёк. Войдите заново, и агент продолжит.",
+    cancel: "Отмена",
+    close: "Закрыть",
+    toolsTitle: "Инструменты",
+    toolsHint: "Агент не держит их в каждом чате: подгружает, когда задача касается этого сервиса.",
+    toolsBeforeConnect: "После подключения здесь появится список инструментов, которые сможет вызывать агент.",
+    toolsLoading: "Запрашиваю список у сервера…",
+    toolsEmpty: "Сервер не отдал ни одного инструмента.",
+    noSummary: "Свой MCP-сервер.",
+    guideTitle: "Как подключить",
+    resourcesRefresh: "Обновить",
+    resourcesAdd: "Добавить",
+    resourcesRemove: "Убрать из списка",
+    resourcesLoading: "Обновляю список…",
+    resourcesEmpty: "Список пуст.",
+    confirmColumn: "Подтверждать",
+    availableColumn: "Доступен",
+    confirmHint: "Отмеченное агент делает только после вашего «да» в карточке.",
+    autoApprove: "Выполнять всё без подтверждения",
+    autoApproveHint: "Агент будет вызывать любые инструменты этого сервиса сам, без карточки.",
+    resetDefaults: "Вернуть по умолчанию",
+    configure: "Настроить",
+    configured: "настроено",
+    rulesTitle: (title) => `${title}: настройки здесь`,
+    rulesHint: "Действуют только здесь и перекрывают общие настройки коннектора. Выключенный инструмент агент не видит.",
+    rulesUnattended: "Задача работает без вас: подтверждать некому, и вызов, требующий подтверждения, будет отклонён. Снимите «Подтверждать» у того, что задача должна делать сама, — или выключите лишнее.",
+    rulesInherited: "Подтверждения — как в общих настройках коннектора.",
+    rulesInheritReset: "Как в общих настройках",
+    rulesAllTools: "Все инструменты",
+    rulesNeedConnect: "Подключите коннектор в разделе «Коннекторы», чтобы настроить его инструменты.",
+    done: "Готово",
+    add: "Добавить",
+    pickerTitle: "Коннекторы",
+    noneSelected: "Ничего не выбрано",
+    pickerEmpty: "Коннекторов пока нет — добавьте их в разделе «Коннекторы».",
   },
 };
 
@@ -1798,6 +1988,9 @@ const en: Dictionary = {
       },
     },
     useDefaults: "Defaults",
+    fieldConnectors: "Connectors",
+    fieldConnectorsHint:
+      "Services the agent may use. Nothing selected — the agent does not see them. If a service is not connected yet, the agent asks to connect it when needed.",
     enabledLabel: "Available as a mode",
     enabledHint:
       "You'll be able to run the agent as a separate chat via the Mode picker in the input.",
@@ -1818,7 +2011,6 @@ const en: Dictionary = {
     sortName: "By name",
     sortRecent: "Newest first",
     nothingFound: "Nothing found",
-    connectorsSoon: "Connectors coming soon",
     createSkill: "Create skill",
     skillFileNotShown: "This file can't be shown as text — an image, an archive, or too large.",
     skillFork: "Copy",
@@ -1827,6 +2019,7 @@ const en: Dictionary = {
     groupSkills: "Skills",
     groupSkillsMine: "My skills",
     groupSkillsBuiltin: "Built-in",
+    groupConnectorsMine: "My connectors",
     groupConnectors: "Connectors",
     skillAssistantOpener:
       "I want a skill of my own. Let me describe the work I do regularly — I need it done the same way every time.",
@@ -1903,6 +2096,9 @@ const en: Dictionary = {
     attachSkillPick: "Pick a skill…",
     tabAgents: "Agents",
     tabSkills: "Skills",
+    tabConnectors: "Connectors",
+    connectorsHint: "Services the agents see in this space's chats. Nothing selected — they see none.",
+    emptyConnectors: "No connectors yet. Add one from your connected services.",
     attachFromLibrary: "Add",
     newChatDefault: "Default",
     tabOverview: "Overview",
@@ -1976,6 +2172,8 @@ const en: Dictionary = {
     timezoneLabel: "Time zone",
     agentLabel: "Agent",
     agentDefault: "Assistant (default)",
+    connectorsLabel: "Connectors",
+    connectorsHint: "Added to the agent's own services for the run — they do not replace them.",
     instructionLabel: "Instructions",
     instructionHint: "Describe in words what should happen on each run — like a task for a person.",
     instructionPlaceholder: "Describe what should happen on each run…",
@@ -2039,6 +2237,90 @@ const en: Dictionary = {
     ],
     createFailed: "Failed to save the task",
     alreadyRunning: "The task is already running",
+  },
+  connectors: {
+    custom: "Custom server",
+    customChip: "custom",
+    customTitle: "Custom MCP server",
+    customIntro: "Any remote MCP server by URL (streamable HTTP).",
+    customFile: "File",
+    nameLabel: "Name",
+    namePlaceholder: "e.g. Company CRM",
+    urlLabel: "Server URL",
+    authLabel: "Sign-in",
+    authOAuth: "Sign in to service",
+    authToken: "Token",
+    authNone: "No sign-in",
+    continueToSignIn: "Next — sign in",
+    connected: "Connected",
+    notConnected: "Not connected",
+    needsReauth: "Sign-in expired",
+    pending: "Needs connecting",
+    unavailableShort: "unavailable",
+    unavailable: (env) => `Unavailable on this installation: ${env} is not set on the server.`,
+    connect: "Connect",
+    reconnect: "Sign in again",
+    disconnect: "Disconnect",
+    notNow: "Not now",
+    signIn: (title) => `Sign in with ${title}`,
+    signInHint: "A service window opens. Once you sign in, come back — the connection completes by itself.",
+    waiting: "Waiting for sign-in…",
+    oauthFailed: "Sign-in failed. Try again.",
+    deviceStep: (url) => `Open ${url}, enter this code and allow access.`,
+    deviceOpen: "Open the sign-in page",
+    deviceCopy: "Copy code",
+    deviceCopied: "Copied",
+    deviceWaiting: (left) => `Waiting for confirmation · code valid for ${left}`,
+    deviceExpired: "The code has expired — get a new one.",
+    deviceRetry: "Get a new code",
+    deviceFailed: (reason) => `Sign-in failed: ${reason}`,
+    or: "or",
+    tokenLabel: "Access token",
+    tokenPlaceholder: "Paste the token",
+    connectWithToken: "Connect with token",
+    showTools: "Show tools",
+    toolsCount: (n) => `Tools: ${n}`,
+    toolsFailed: "Could not fetch the tool list.",
+    site: "Website",
+    privacy: "Tokens are stored encrypted and used only for requests to the service on your behalf.",
+    cardTitle: (title) => `Avy asks to connect ${title}`,
+    cardReauth: (title) => `Sign in to ${title} again`,
+    cardHint: "Connect the service and the agent continues with it. Or decline — it will manage without.",
+    cardReauthHint: "Access to the service has expired. Sign in again and the agent continues.",
+    cancel: "Cancel",
+    close: "Close",
+    toolsTitle: "Tools",
+    toolsHint: "The agent does not carry them in every chat: it loads them when a task touches this service.",
+    toolsBeforeConnect: "Once connected, the tools the agent can call will be listed here.",
+    toolsLoading: "Asking the server for the list…",
+    toolsEmpty: "The server returned no tools.",
+    noSummary: "Custom MCP server.",
+    guideTitle: "How to connect",
+    resourcesRefresh: "Refresh",
+    resourcesAdd: "Add",
+    resourcesRemove: "Remove from list",
+    resourcesLoading: "Refreshing the list…",
+    resourcesEmpty: "The list is empty.",
+    confirmColumn: "Confirm",
+    availableColumn: "Enabled",
+    confirmHint: "The agent does checked actions only after your “yes” on a card.",
+    autoApprove: "Run everything without confirmation",
+    autoApproveHint: "The agent will call any tool of this service on its own, without a card.",
+    resetDefaults: "Reset to defaults",
+    configure: "Configure",
+    configured: "customized",
+    rulesTitle: (title) => `${title}: settings here`,
+    rulesHint: "They apply only here and override the connector's general settings. The agent doesn't see a disabled tool.",
+    rulesUnattended: "This task runs without you: nobody can confirm, so a call that needs confirmation is refused. Uncheck “Confirm” for what the task must do on its own — or disable what it doesn't need.",
+    rulesInherited: "Confirmation follows the connector's general settings.",
+    rulesInheritReset: "Use general settings",
+    rulesAllTools: "All tools",
+    rulesNeedConnect: "Connect it in the Connectors section to configure its tools.",
+    done: "Done",
+    add: "Add",
+    pickerTitle: "Connectors",
+    noneSelected: "Nothing selected",
+    pickerEmpty: "No connectors yet — add them in the Connectors section.",
   },
 };
 

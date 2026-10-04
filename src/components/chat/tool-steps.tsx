@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useEffect, useRef, useState } from "react";
+import { useConnectorLabels } from "@/lib/connector-registry";
 import { createPortal } from "react-dom";
 import { ChevronRight, MessageSquareText, Sparkles, Bot, X } from "lucide-react";
 import { ThinkingPanel } from "@/components/chat/thinking-panel";
@@ -146,6 +147,8 @@ export function ThoughtStream({
   className?: string;
   hideStepIcons?: boolean;
 }) {
+  // Названия инструментов коннекторов приходят с каталогом — перерисовать по приходу.
+  useConnectorLabels();
   // Скрытые карточки task (продолжения, слитые с исходной) убираем ДО
   // разбиения: иначе на их месте оставался разрыв, и две цепочки рассуждений
   // шли подряд без текста между ними.
@@ -215,6 +218,8 @@ export function ThoughtChain({
   className?: string;
   hideStepIcons?: boolean;
 }) {
+  // Названия инструментов коннекторов приходят с каталогом — перерисовать по приходу.
+  useConnectorLabels();
   // Свёрнута по умолчанию (и пока агент работает тоже): заголовок сам говорит,
   // что сейчас делает агент. Пользователь раскрывает кликом (контролируемое
   // состояние, своё открытие/закрытие сохраняется).
@@ -307,6 +312,8 @@ function AgentTaskStep({
   running: boolean;
   threadId: string;
 }) {
+  // Названия инструментов коннекторов приходят с каталогом — перерисовать по приходу.
+  useConnectorLabels();
   const t = useT();
   const { locale } = useLocale();
   const L = t.chat.task;
@@ -626,6 +633,8 @@ const StepRow = memo<StepRowProps>(function StepRow({
   onOpenSubagent,
   hideIcon = false,
 }) {
+  // Названия инструментов коннекторов приходят с каталогом — перерисовать по приходу.
+  useConnectorLabels();
   if (step.kind === "reasoning") {
     return (
       <TimelineNode

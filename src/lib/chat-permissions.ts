@@ -5,7 +5,7 @@
 // Вынесено из chat-streams.ts, чтобы основной стор оставался чисто чатовым.
 // Этот модуль НЕ импортирует chatStreams напрямую (циклический импорт).
 // Вместо этого экспортирует функции, которые chat-streams.ts вызывает,
-// передавая необходимые зависимости (rec, setState, consume, streamChat, nextId).
+// передавая необходимые зависимости (rec, setState, consume, streamChat, resumeBubble).
 
 import { streamChat, type ChatEvent } from "@/lib/api";
 import type { PendingPermission } from "@/lib/chat-streams";
@@ -14,7 +14,11 @@ import type { PendingPermission } from "@/lib/chat-streams";
 export type CodeRunParams = {
   modelId?: string;
   effort?: string | null;
+  /** Режим прерванного хода: null — обычный чат. */
+  mode?: string | null;
   permissionMode?: string | null;
+  /** Агент из библиотеки, которым шёл прерванный ход; пусто — ассистент. */
+  agentId?: string | null;
   onTitle?: (title: string) => void;
   onDone?: (threadId: string) => void;
 };
@@ -46,7 +50,8 @@ export type StoreDeps = {
     assistantId: string,
     cbs: RunCallbacks,
   ) => Promise<void>;
-  nextId: () => string;
+  /** Пузырь-приёмник продолжения: прежний, если он ещё в ленте, иначе новый. */
+  resumeBubble: (threadId: string) => string;
 };
 
 /**
@@ -112,7 +117,8 @@ export async function resolvePermission(
     return;
   }
 
-  // Все карточки пройдены — снимаем очередь, возобновляем ход.
+  // Все карточки пройдены — снимаем очередь, возобновляем ход. Пузырь тот
+  // же, пока он в ленте; после перечитывания истории — новый (resumeBubble).
   const decisions = r.pendingDecisions;
   r.pendingDecisions = [];
   deps.setState(threadId, {
@@ -121,8 +127,7 @@ export async function resolvePermission(
     pendingPermissions: [],
   });
 
-  const assistantId = r.assistantId ?? deps.nextId();
-  r.assistantId = assistantId;
+  const assistantId = deps.resumeBubble(threadId);
 
   const ctrl = new AbortController();
   r.ctrl = ctrl;
@@ -135,8 +140,16 @@ export async function resolvePermission(
           threadId,
           modelId: code.modelId,
           effort: code.effort,
-          mode: "avy-code",
+          // Режим — ТОТ ЖЕ, что у прерванного хода. Раньше здесь стояло
+          // "avy-code" намертво: подтверждение бывало только у кодера. Теперь
+          // его запрашивает и обычный чат (`confirm:` у агента, инструменты
+          // коннекторов), а тред чата в чужом режиме сервер отклоняет (409).
+          mode: code.mode ?? null,
           permissionMode: code.permissionMode,
+          // Агент — ТОТ ЖЕ, что вёл прерванный ход. Без него сервер собрал бы
+          // универсального ассистента, и подтверждённый вызов достался бы
+          // чужому набору инструментов: своих тул агента в нём нет.
+          agentId: code.agentId,
           resume: decisions,
         },
         ctrl.signal,

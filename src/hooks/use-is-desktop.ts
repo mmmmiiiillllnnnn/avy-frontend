@@ -23,6 +23,9 @@ export type CertStatus = {
 export type AvyDesktopBridge = {
   version: string
   platform: string
+  /** Открыть https-ссылку в браузере по умолчанию (вход в коннекторы).
+   *  В оболочках, собранных до коннекторов, метода нет. */
+  openExternal?: (url: string) => Promise<{ ok: true } | { error: string }>
   certs: {
     status: () => Promise<CertStatus>
     pick: (kind: "cert" | "key") => Promise<{ ok: boolean; name?: string; error?: string }>

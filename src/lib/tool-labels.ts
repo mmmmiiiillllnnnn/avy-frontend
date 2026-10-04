@@ -1,3 +1,4 @@
+import { connectorToolTitle } from "@/lib/connector-registry";
 import type { Locale } from "@/lib/locale";
 
 /**
@@ -67,12 +68,24 @@ function toolTarget(name: string, args: Record<string, unknown>): string {
       // человек читает в карточке над вводом, дублировать его здесь незачем, а
       // default выдал бы сырой массив questions ([object Object]).
       return "";
+    case "connector":
+      return String(a.name ?? "");
     default: {
-      const keys = Object.keys(a);
-      return keys.length ? String(a[keys[0]] ?? "") : "";
+      // Первый ТЕКСТОВЫЙ аргумент: у инструментов коннекторов первым часто
+      // идёт объект или массив (письма, задачи), и String() дал бы
+      // «[object Object]». Сначала — поля, по которым шаг узнают.
+      for (const key of TARGET_KEYS) {
+        const v = a[key];
+        if (typeof v === "string" && v) return v;
+      }
+      const first = Object.values(a).find((v) => typeof v === "string" || typeof v === "number");
+      return first === undefined ? "" : String(first);
     }
   }
 }
+
+/** Аргументы, по которым шаг коннектора узнают: чат, запрос, тема письма… */
+const TARGET_KEYS = ["chat", "query", "q", "subject", "title", "name", "summary", "text", "url"];
 
 /** Последний сегмент пути (для файловых тулов), пустую строку оставляем как есть. */
 function basename(p: string): string {
@@ -129,6 +142,11 @@ function toolTitle(
   }
   const dict = TOOL_TITLES[name];
   if (dict) return dict[locale];
+  // Инструмент коннектора — по названиям из каталога («Telegram: Отправить
+  // сообщение»). Время глагола у них не меняется: названия — действия, а
+  // исход шага виден по значку.
+  const fromConnector = connectorToolTitle(name, locale);
+  if (fromConnector) return fromConnector;
   // Незнакомый инструмент (скилл и т.п.): человекочитаем имя — снимаем _,
   // делаем Title Case, чтобы не висел сырой snake_case.
   return name.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
@@ -253,6 +271,7 @@ const TOOL_TITLES: Record<string, { ru: string; en: string }> = {
   task: { ru: "Ставлю задачу агенту", en: "Briefing an agent" },
   // Запуск задачи теперь отдельной узкой тулой (задачи сами — файлы /tasks/).
   run_task: { ru: "Запускаю задачу", en: "Running task" },
+  connector: { ru: "Подключаю сервис", en: "Connecting a service" },
 };
 
 /**
@@ -347,6 +366,12 @@ const TOOL_TITLES_DONE: Record<
     en: "Task started",
     failRu: "Задачу запустить не удалось",
     failEn: "Couldn't start the task",
+  },
+  connector: {
+    ru: "Сервис подключён",
+    en: "Service connected",
+    failRu: "Сервис подключить не удалось",
+    failEn: "Couldn't connect the service",
   },
 };
 

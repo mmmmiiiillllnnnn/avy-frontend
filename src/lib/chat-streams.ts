@@ -18,7 +18,7 @@ import {
   attachChat,
   attachSubagent,
   deliverSubagentReports,
-  fetchThreadMessages,
+  fetchThreadHistory,
   interjectTurn,
   stopChat,
   stopSubagent,
@@ -27,14 +27,17 @@ import {
   streamEdit,
   type AskUserAnswer,
   type AskUserQuestionSpec,
+  type ConnectorAnswer,
   type BackgroundStatus,
   type ChatEvent,
   type DeliverParams,
+  type PendingEvent,
   type SubagentQuestion,
   type SubagentReport,
   type Weather,
 } from "@/lib/api";
 import type { PendingQuestions } from "@/components/chat/question-card";
+import type { PendingConnector } from "@/components/chat/connector-card";
 import {
   handlePermissionRequest,
   resolvePermission as codeResolvePermission,
@@ -219,6 +222,9 @@ export type ThreadState = {
   // ОДИН, не очередь: тула отдаёт все свои вопросы одной карточкой, и второй
   // вызов до ответа невозможен — граф стоит в interrupt.
   pendingQuestions: PendingQuestions | null;
+  // Просьба агента подключить сервис (тула connector) — тот же interrupt, что
+  // у вопроса, карточка своя. Тоже ОДНА: тула ждёт ответа на один сервис.
+  pendingConnector: PendingConnector | null;
 };
 
 const EMPTY: ThreadState = {
@@ -227,6 +233,7 @@ const EMPTY: ThreadState = {
   error: null,
   pendingPermissions: [],
   pendingQuestions: null,
+  pendingConnector: null,
 };
 
 let _idCounter = 0;
@@ -266,6 +273,11 @@ type ThreadRecord = {
   codeRun: {
     modelId?: string;
     effort?: string | null;
+    /** Режим хода (null = обычный чат). Возобновление после карточки идёт
+     *  ТЕМ ЖЕ режимом: подтверждение бывает и в обычном чате (`confirm:` у
+     *  агента, инструменты коннекторов), а с прошитым "avy-code" сервер
+     *  отклонял продолжение — тред в другом режиме. */
+    mode?: string | null;
     permissionMode?: string | null;
     /** Агент из библиотеки; undefined = универсальный чат. */
     agentId?: string | null;
@@ -1367,7 +1379,7 @@ function applyEvent(
     case "permission_request": {
       // Code-режим: делегируем в code-streams (изолирован от основного стора).
       handlePermissionRequest(
-        { rec, setState, consume, nextId },
+        { rec, setState, consume, resumeBubble },
         threadId,
         ev as { interrupt_id?: string; tool: string; args: Record<string, unknown> },
       );
@@ -1385,6 +1397,17 @@ function applyEvent(
           interruptId: q.interrupt_id ?? null,
           questions: q.questions ?? [],
         },
+      });
+      break;
+    }
+    case "connector_request": {
+      // Агент вызвал connector для неподключённого сервиса — граф в interrupt,
+      // как у ask_user; карточка «Подключить» вместо поля ввода.
+      const q = ev as { interrupt_id?: string; connector?: PendingConnector["connector"] };
+      if (!q.connector) break;
+      setState(threadId, {
+        isStreaming: false,
+        pendingConnector: { interruptId: q.interrupt_id ?? null, connector: q.connector },
       });
       break;
     }
@@ -1536,6 +1559,76 @@ async function consume(
   }
 }
 
+/**
+ * Пузырь-приёмник для ПРОДОЛЖЕНИЯ хода после карточки (подтверждение, вопрос,
+ * подключение). Ход тот же самый, и продолжение должно дописаться в прежний
+ * пузырь. Но прежнего пузыря в ленте может уже не быть: после перечитывания
+ * истории (реаттач, возврат в окно, вход в сервис во внешнем браузере) у
+ * сообщений новые id, а r.assistantId сброшен или указывает в пустоту — и все
+ * кадры продолжения падали бы мимо ленты. Тогда открываем новый пузырь в
+ * конце ленты.
+ */
+function resumeBubble(threadId: string): string {
+  const r = rec(threadId);
+  const known = r.assistantId;
+  if (known && r.state.messages.some((m) => m.id === known)) return known;
+  const fresh = nextId();
+  patchMessages(threadId, (msgs) => [
+    ...msgs,
+    { id: fresh, role: "assistant", content: "", parts: [] },
+  ]);
+  r.assistantId = fresh;
+  if (!r.turnStart) r.turnStart = fresh;
+  return fresh;
+}
+
+/**
+ * Продолжить ход после карточки (вопрос ask_user или коннектор): тот же путь,
+ * что обычный ход, но с полем `answers` вместо сообщения — бэк подаёт его в
+ * граф как Command(resume=...), граф выходит из interrupt и досчитывает ход.
+ */
+async function resumeWithAnswers(threadId: string, answers: AskUserAnswer[] | ConnectorAnswer) {
+  const r = rec(threadId);
+  // Пузырь ассистента переиспользуем: ход тот же самый, продолжение должно
+  // дописаться в него, а не начать новый (иначе в ленте два ответа на одну
+  // реплику пользователя). Нет его в ленте — новый (см. resumeBubble).
+  const assistantId = resumeBubble(threadId);
+
+  const run = r.codeRun;
+  const ctrl = new AbortController();
+  r.ctrl = ctrl;
+  try {
+    await consume(
+      threadId,
+      streamChat(
+        {
+          message: "",
+          threadId,
+          modelId: run?.modelId,
+          effort: run?.effort,
+          agentId: run?.agentId,
+          permissionMode: run?.permissionMode,
+          answers,
+        },
+        ctrl.signal,
+      ),
+      assistantId,
+      { onTitle: run?.onTitle, onDone: run?.onDone },
+    );
+  } catch (e) {
+    if ((e as Error).name !== "AbortError") {
+      setState(threadId, { error: (e as Error).message });
+    } else if (!r.stopping) {
+      return; // ход жив на сервере — состояние не трогаем
+    }
+  }
+  if (r.ctrl === ctrl) r.ctrl = null;
+  r.stopping = false;
+  setState(threadId, { isStreaming: false });
+  run?.onDone?.(threadId);
+  afterTurn(threadId, { onTitle: run?.onTitle, onDone: run?.onDone });
+}
+
 export const chatStreams = {
   /** Снимок состояния сессии (для useSyncExternalStore). */
   getState(threadId: string): ThreadState {
@@ -1636,10 +1729,53 @@ export const chatStreams = {
       error: null,
       pendingPermissions: [],
       pendingQuestions: null,
+      pendingConnector: null,
     };
     r.frames = 0;
     r.assistantId = null;
     emit(r);
+  },
+
+  /**
+   * Карточки хода на паузе — из истории (сервер отдаёт `pending`). Раньше
+   * карточка жила только в памяти вкладки: любое перечитывание истории
+   * (возврат в окно, переподключение, повторное открытие) убирало её без
+   * возврата, и ход висел на паузе (29.09: «пропала, будто нажал Esc»).
+   * Очередь приходит целиком — уже данные в этой паузе решения сбрасываем.
+   */
+  setPending(threadId: string, pending: PendingEvent[]) {
+    const r = rec(threadId);
+    if (r.state.isStreaming || !pending.length) return;
+    // Продолжение идёт параметрами прерванного хода; после перезагрузки их
+    // нет — берём текущие параметры чата (модель, глубина, режим, агент).
+    if (!r.codeRun && r.turnParams) {
+      r.codeRun = {
+        modelId: r.turnParams.modelId,
+        effort: r.turnParams.effort,
+        mode: r.turnParams.mode ?? null,
+        agentId: r.turnParams.agentId,
+      };
+    }
+    r.pendingDecisions = [];
+    const permissions: PendingPermission[] = pending
+      .filter((e) => e.type === "permission_request")
+      .map((e) => ({
+        interruptId: e.interrupt_id ?? null,
+        tool: e.tool ?? "",
+        args: e.args ?? {},
+        description: e.description ?? "",
+      }));
+    const question = pending.find((e) => e.type === "ask_user_request");
+    const connector = pending.find((e) => e.type === "connector_request" && e.connector);
+    setState(threadId, {
+      pendingPermissions: permissions,
+      pendingQuestions: question
+        ? { interruptId: question.interrupt_id ?? null, questions: (question.questions ?? []) as AskUserQuestionSpec[] }
+        : null,
+      pendingConnector: connector
+        ? { interruptId: connector.interrupt_id ?? null, connector: connector.connector as PendingConnector["connector"] }
+        : null,
+    });
   },
 
   /** Подгрузить следующую порцию истории (scroll вверх). */
@@ -1685,6 +1821,7 @@ export const chatStreams = {
     r.codeRun = {
       modelId: opts.modelId,
       effort: opts.effort,
+      mode: opts.mode,
       permissionMode: opts.permissionMode,
       agentId: opts.agentId,
       onTitle: opts.onTitle,
@@ -1816,47 +1953,18 @@ export const chatStreams = {
     // Карточку снимаем сразу: ответ зафиксирован, второй раз её показывать
     // нечего, а её присутствие блокирует инпут.
     setState(threadId, { pendingQuestions: null, isStreaming: true, error: null });
+    await resumeWithAnswers(threadId, answers);
+  },
 
-    // Пузырь ассистента переиспользуем: ход тот же самый, продолжение должно
-    // дописаться в него, а не начать новый (иначе в ленте два ответа на одну
-    // реплику пользователя).
-    const assistantId = r.assistantId ?? nextId();
-    r.assistantId = assistantId;
-    if (!r.turnStart) r.turnStart = assistantId;
-
-    const run = r.codeRun;
-    const ctrl = new AbortController();
-    r.ctrl = ctrl;
-    try {
-      await consume(
-        threadId,
-        streamChat(
-          {
-            message: "",
-            threadId,
-            modelId: run?.modelId,
-            effort: run?.effort,
-            agentId: run?.agentId,
-            permissionMode: run?.permissionMode,
-            answers,
-          },
-          ctrl.signal,
-        ),
-        assistantId,
-        { onTitle: run?.onTitle, onDone: run?.onDone },
-      );
-    } catch (e) {
-      if ((e as Error).name !== "AbortError") {
-        setState(threadId, { error: (e as Error).message });
-      } else if (!r.stopping) {
-        return; // ход жив на сервере — состояние не трогаем
-      }
-    }
-    if (r.ctrl === ctrl) r.ctrl = null;
-    r.stopping = false;
-    setState(threadId, { isStreaming: false });
-    run?.onDone?.(threadId);
-    afterTurn(threadId, { onTitle: run?.onTitle, onDone: run?.onDone });
+  /**
+   * Ответить на карточку коннектора (тула connector): подключил или отказался.
+   * Тот же канал `answers`, что у вопроса, — словарём {connected}.
+   */
+  async answerConnector(threadId: string, connected: boolean) {
+    const r = rec(threadId);
+    if (!r.state.pendingConnector) return;
+    setState(threadId, { pendingConnector: null, isStreaming: true, error: null });
+    await resumeWithAnswers(threadId, { connected });
   },
 
   /**
@@ -1865,7 +1973,7 @@ export const chatStreams = {
    */
   async resolvePermission(threadId: string, decision: "approve" | "reject", comment?: string) {
     await codeResolvePermission(
-      { rec, setState, consume, nextId },
+      { rec, setState, consume, resumeBubble },
       threadId,
       decision,
       comment,
@@ -2099,7 +2207,9 @@ export const chatStreams = {
       // тред не делает). Ошибка сети не критична — история придёт при
       // следующем открытии треда.
       try {
-        this.setHistory(threadId, await fetchThreadMessages(threadId));
+        const history = await fetchThreadHistory(threadId);
+        this.setHistory(threadId, history.messages);
+        this.setPending(threadId, history.pending);
       } catch (e) {
         console.warn("history reload after reset failed", threadId, e);
       }
