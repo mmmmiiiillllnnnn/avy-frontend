@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useState } from "react";
+import { useConnectorLabels } from "@/lib/connector-registry";
 import { ChevronRight, Loader2, FileText, Square, CheckSquare, Search, FolderSearch } from "lucide-react";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { EditFileDiff } from "@/components/chat/edit-diff";
@@ -138,6 +139,8 @@ const CodeToolStep = memo(function CodeToolStep({
   onOpenFile?: (path: string, searchText?: string, highlightLines?: { start: number; end?: number }) => void;
   onOpenMemory?: (path: string) => void;
 }) {
+  // Названия инструментов коннекторов приходят с каталогом — перерисовать по приходу.
+  useConnectorLabels();
   const [expanded, setExpanded] = useState(() => step.name === "bash");
   const { title } = describeTool(step.name, step.args, locale);
   const streaming = step.state === "streaming";

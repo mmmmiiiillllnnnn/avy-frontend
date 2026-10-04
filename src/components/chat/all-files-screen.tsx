@@ -17,6 +17,14 @@ import {
 import { Modal } from "@/components/ui/modal";
 import { FileCard } from "@/components/chat/file-card";
 import { FileViewer, usePanelWidth } from "@/components/chat/files-panel";
+import { useIsMobile } from "@/hooks/use-mobile";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { AnimatePresence, motion } from "motion/react";
 import { X } from "lucide-react";
 import { downloadFile } from "@/lib/download-file";
@@ -242,6 +250,70 @@ export function FilePreviewPanel({
 }) {
   const t = useT();
   const { width, dragging, handlers } = usePanelWidth(1 / 2, "avy:all-files-preview-width");
+  const isMobile = useIsMobile();
+
+  // Шапка и вьювер — общие для обоих видов.
+  const body = (w: number | string) =>
+    target && (
+      <div style={{ width: w }} className="flex h-full min-h-0 flex-1 flex-col">
+        {/* Шапка: имя файла + скачать + закрыть. */}
+        {/* h-14 — как центральный хэдер чата: заголовки на одной линии.
+            Без border-b — шапка на общей поверхности (утверждённый макет). */}
+        <div className="flex h-14 shrink-0 items-center gap-1.5 pl-5 pr-3">
+          <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">
+            {target.file.name}
+          </span>
+          <button
+            type="button"
+            onClick={() =>
+              void downloadFile(
+                sessionFileRawUrl(target.threadId, target.file.path),
+                target.file.name,
+                target.file.mime,
+              )
+            }
+            aria-label={t.files.download}
+            title={t.files.download}
+            className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+          >
+            <Download className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={t.files.closePanel}
+            title={t.files.closePanel}
+            className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+        {/* key по пути — при смене файла ремонтируем вьювер (сброс зума/скролла). */}
+        <FileViewer key={target.file.path} file={target.file} threadId={target.threadId} />
+      </div>
+    );
+
+  // МОБИЛЬНЫЙ ВИД — шторкой ПОВЕРХ раздела, как панель файлов сессии
+  // (files-panel.tsx) и мобильный сайдбар. Колонкой в потоке она отжимала
+  // сетку файлов в полоску шириной в пару букв.
+  if (isMobile) {
+    return (
+      <Sheet open={target !== null} onOpenChange={(v) => { if (!v) onClose(); }}>
+        <SheetContent
+          side="right"
+          // Свой крестик Sheet не рисуем — он уже есть в шапке.
+          showCloseButton={false}
+          className="w-full gap-0 border-0 bg-sidebar p-0 text-sidebar-foreground sm:max-w-md"
+        >
+          <SheetHeader className="sr-only">
+            <SheetTitle>{target?.file.name ?? t.files.closePanel}</SheetTitle>
+            <SheetDescription>{target?.file.name ?? ""}</SheetDescription>
+          </SheetHeader>
+          {body("100%")}
+        </SheetContent>
+      </Sheet>
+    );
+  }
 
   return (
     <AnimatePresence initial={false}>
@@ -264,42 +336,7 @@ export function FilePreviewPanel({
           >
             <div className="absolute inset-y-0 left-0 w-px bg-transparent transition-colors group-hover:bg-foreground/20" />
           </div>
-          <div style={{ width }} className="flex h-full min-h-0 flex-1 flex-col">
-            {/* Шапка: имя файла + скачать + закрыть. */}
-            {/* h-14 — как центральный хэдер чата: заголовки на одной линии.
-                Без border-b — шапка на общей поверхности (утверждённый макет). */}
-            <div className="flex h-14 shrink-0 items-center gap-1.5 pl-5 pr-3">
-              <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">
-                {target.file.name}
-              </span>
-              <button
-                type="button"
-                onClick={() =>
-                  void downloadFile(
-                    sessionFileRawUrl(target.threadId, target.file.path),
-                    target.file.name,
-                    target.file.mime,
-                  )
-                }
-                aria-label={t.files.download}
-                title={t.files.download}
-                className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
-              >
-                <Download className="size-4" />
-              </button>
-              <button
-                type="button"
-                onClick={onClose}
-                aria-label={t.files.closePanel}
-                title={t.files.closePanel}
-                className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
-              >
-                <X className="size-4" />
-              </button>
-            </div>
-            {/* key по пути — при смене файла ремонтируем вьювер (сброс зума/скролла). */}
-            <FileViewer key={target.file.path} file={target.file} threadId={target.threadId} />
-          </div>
+          {body(width)}
         </motion.aside>
       )}
     </AnimatePresence>

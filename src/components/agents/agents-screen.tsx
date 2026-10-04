@@ -31,16 +31,17 @@ import { AgentConnectionsButton } from "@/components/agents/agent-connections";
 import { ConnectorLogo, ConnectorsPanel } from "@/components/agents/connectors-panel";
 import { useConnectorItems, useConnectorList } from "@/components/agents/connector-items";
 import { ConnectorRulesDialog } from "@/components/agents/connector-rules-dialog";
+import { SkillIcon } from "@/components/ui/skill-icon";
 import { connectionForms } from "@/lib/connection-card";
 import { invalidateAgents } from "@/hooks/use-agents";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { useLocale, useT } from "@/i18n/i18n-context";
 import { useAgentLibrary } from "@/hooks/use-agents";
 import {
-  connectorSummary,
   createMySkill,
   deleteMySkill,
   deleteMySkillFile,
+  connectorSummary,
   fetchConnectors,
   fetchMiddleware,
   fetchMySkillFile,
@@ -57,11 +58,11 @@ import {
   type Agent,
   type AgentInput,
   type ConnectorInfo,
-  type ConnectorRules,
   type MySkill,
   type MySkillInput,
   type SkillDetail,
   type SkillInfo,
+  type ConnectorRules,
 } from "@/lib/api";
 import {
   EFFORT_LABELS,
@@ -78,7 +79,6 @@ const LABEL = "text-xs font-medium text-muted-foreground";
 // начинается обычный разговор (chat-workspace.tsx). Модель по умолчанию — с
 // бэкенда (useModels), как и в чате: прошитого списка моделей больше нет.
 const DEFAULT_AGENT_EFFORT = "medium";
-
 
 /** Порядок списка. «Новые» осмысленны для агентов и СВОИХ навыков (у обоих есть
  *  дата создания); у коробочных навыков даты нет, они держат порядок имён. */
@@ -126,12 +126,16 @@ function Switch({
 
 function AgentCard({
   agent,
+  onOpen,
   onEdit,
   onToggle,
   onDelete,
   onConnectionsChanged,
 }: {
   agent: Agent;
+  /** Открыть на просмотр — у ЛЮБОГО агента, и у встроенного: посмотреть,
+   *  о чём он и как работает, не рискуя что-то задеть. Правка — карандашом. */
+  onOpen: () => void;
   onEdit: () => void;
   onToggle: (enabled: boolean) => void;
   onDelete: () => void;
@@ -144,94 +148,98 @@ function AgentCard({
   const effort = cfg.effort as EffortLevel | undefined;
   const forms = connectionForms(agent.config);
   const needsConnection = (agent.missing_connections ?? []).length > 0;
+  const connections = agent.slug && forms.length > 0;
 
+  // ПЛИТКА КАК У НАВЫКА И КОННЕКТОРА. Высота у всех ОДНА: описание всегда
+  // в две строки, под ним ОДИН нижний ряд — чипы модели слева, действия
+  // справа (как у коннектора: чипы внизу). Свои и встроенные стоят в разных
+  // сетках, по ряду их не выровнять — поэтому ряд есть всегда, даже пустой.
+  // Раньше чипы и действия занимали две строки, и у встроенного агента (ни
+  // модели, ни кнопок) внизу зияли обе пустые. Выключенный не приглушаем
+  // (как и навык): это состояние, его показывает тумблер.
   return (
     <div
       className={cn(
-        "group flex items-start gap-3 rounded-xl border border-border/60 bg-muted/20 p-3 transition-colors",
-        agent.editable && "cursor-pointer hover:bg-accent/40",
-        !agent.enabled && "opacity-60",
+        "group flex h-full cursor-pointer flex-col gap-2 rounded-xl border border-border/60 bg-muted/20 p-3 transition-colors hover:bg-accent/40",
       )}
-      onClick={agent.editable ? onEdit : undefined}
+      onClick={onOpen}
     >
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0">
         <div className="flex items-center gap-2">
+          <Bot className="size-4 shrink-0 text-muted-foreground" />
           <span className="truncate text-sm font-medium text-foreground">
             {agent.name}
           </span>
         </div>
-        {agent.description && (
-          <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-            {agent.description}
-          </p>
-        )}
-
-        {/* Модель и глубину показываем, только если агент их ЗАФИКСИРОВАЛ.
-            Пусто = выбор остаётся за человеком в момент разговора. */}
-        {(model || effort) && (
-          <div className="mt-1.5 flex flex-wrap gap-1">
-            {model && (
-              <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
-                {model}
-              </span>
-            )}
-            {effort && (
-              <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
-                {EFFORT_LABELS[effort] ?? effort}
-              </span>
-            )}
-          </div>
-        )}
-        {/* ПОДКЛЮЧЕНИЯ — одна кнопка ПОД ТЕКСТОМ, справа, как «Добавить» у
-            навыка. По конфигу агента: формы лежат в его записи
-            (config.connection_forms), и кнопка есть только у того, кто объявил
-            `connections:`. У остальных ни кнопки, ни запроса. */}
-        {agent.slug && forms.length > 0 && (
-          <div className="mt-2 flex justify-end">
-            <AgentConnectionsButton
-              slug={agent.slug}
-              forms={forms}
-              missing={needsConnection}
-              onChanged={onConnectionsChanged}
-            />
-          </div>
-        )}
+        {/* Три строки — две обрывали даже короткое описание. Высота
+            фиксирована (3 × 1rem), чтобы карточки оставались одинаковыми;
+            целиком описание — в просмотре. */}
+        <p className="mt-0.5 line-clamp-3 h-12 text-xs text-muted-foreground">
+          {agent.description}
+        </p>
       </div>
 
-      {/* Действия. Порядок: правка и удаление, тумблер — у самого края.
-          Кнопки появляются по наведению, тумблер виден всегда: он показывает
-          состояние, а не только переключает. */}
-      {agent.editable && (
-        <div className="flex shrink-0 items-center gap-1 self-center">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onEdit();
-            }}
-            aria-label={a.edit}
-            className="rounded-md p-1.5 text-muted-foreground/60 opacity-0 transition hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
-          >
-            <Pencil className="size-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete();
-            }}
-            aria-label={a.delete}
-            className="rounded-md p-1.5 text-muted-foreground/60 opacity-0 transition hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
-          >
-            <Trash2 className="size-3.5" />
-          </button>
-          <Switch
-            checked={agent.enabled}
-            onChange={onToggle}
-            label={a.enabledLabel}
-          />
+      <div className="mt-auto flex h-7 shrink-0 items-center gap-1">
+        {/* Модель и глубину показываем, только если агент их ЗАФИКСИРОВАЛ.
+            Пусто = выбор остаётся за человеком в момент разговора. */}
+        <div className="flex min-w-0 flex-1 gap-1 overflow-hidden">
+          {model && (
+            <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
+              {model}
+            </span>
+          )}
+          {effort && (
+            <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
+              {EFFORT_LABELS[effort] ?? effort}
+            </span>
+          )}
         </div>
-      )}
+
+        {/* Действия справа. Подключения — у того, кто объявил `connections:`
+            (формы в config.connection_forms); правка и удаление по
+            наведению; тумблер виден всегда — он показывает состояние. */}
+        {connections && (
+          <AgentConnectionsButton
+            slug={agent.slug!}
+            forms={forms}
+            missing={needsConnection}
+            onChanged={onConnectionsChanged}
+          />
+        )}
+        {/* Кнопки есть у КАЖДОГО агента, у встроенного — заблокированы: без
+            них его карточка выглядела другой, а «нельзя» лучше показать, чем
+            спрятать. */}
+        <button
+          type="button"
+          disabled={!agent.editable}
+          onClick={(e) => {
+            e.stopPropagation();
+            onEdit();
+          }}
+          aria-label={a.edit}
+          className="rounded-md p-1.5 text-muted-foreground/60 opacity-0 transition [@media(hover:none)]:opacity-100 enabled:hover:bg-accent enabled:hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 disabled:cursor-not-allowed disabled:text-muted-foreground/30"
+        >
+          <Pencil className="size-3.5" />
+        </button>
+        <button
+          type="button"
+          disabled={!agent.editable}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          aria-label={a.delete}
+          className="rounded-md p-1.5 text-muted-foreground/60 opacity-0 transition [@media(hover:none)]:opacity-100 enabled:hover:bg-destructive/10 enabled:hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100 disabled:cursor-not-allowed disabled:text-muted-foreground/30"
+        >
+          <Trash2 className="size-3.5" />
+        </button>
+        <Switch
+          checked={agent.enabled}
+          onChange={onToggle}
+          disabled={!agent.editable}
+          label={a.enabledLabel}
+        />
+      </div>
     </div>
   );
 }
@@ -711,6 +719,7 @@ export function AgentForm({
         title: s.name,
         description: s.description,
         category: s.category,
+        icon: "",
         mine: true,
       })),
       ...builtin.map((s) => ({
@@ -718,6 +727,7 @@ export function AgentForm({
         title: s.name,
         description: s.description,
         category: s.category,
+        icon: s.icon,
         mine: false,
       })),
     ],
@@ -806,7 +816,7 @@ export function AgentForm({
       title={
         /* ВКЛАДКИ ВМЕСТО НАЗВАНИЯ — как в форме навыка. «Новый агент» в шапке
            ничего не сообщал, а строку занимал. */
-        <div className="inline-flex shrink-0 gap-0.5 rounded-lg bg-muted/60 p-0.5">
+        <div className="inline-flex min-w-0 gap-0.5 overflow-x-auto rounded-lg bg-muted/60 p-0.5">
           {([
             ["agent", a.agentTabMain, 0],
             ["skills", a.fieldSkills, skills.length],
@@ -818,7 +828,7 @@ export function AgentForm({
               type="button"
               onClick={() => setPane(key)}
               className={cn(
-                "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors",
+                "flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-colors sm:px-3",
                 pane === key
                   ? "bg-background font-medium text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground",
@@ -836,14 +846,14 @@ export function AgentForm({
           ))}
         </div>
       }
-      className="flex h-[80dvh] w-full max-w-5xl flex-col"
+      className="flex h-[80dvh] w-full max-w-5xl flex-col max-md:h-[calc(100dvh-2rem)] max-md:p-4"
     >
       {pane === "agent" ? (
         /* ДВЕ КОЛОНКИ. Инструкция — главное поле агента, её пишут и
            переписывают, поэтому она во всю высоту слева. Справа короткие
            свойства: имя, чем занимается, чем думает, два тумблера. */
-        <div className="flex min-h-0 flex-1 gap-5 overflow-hidden">
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-1.5">
+        <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto md:flex-row md:overflow-hidden">
+          <div className="flex min-h-[60dvh] min-w-0 flex-1 flex-col gap-1.5 md:min-h-0">
             <FieldLabel label={a.fieldPrompt} hint={a.fieldPromptHint} />
             <textarea
               value={prompt}
@@ -853,7 +863,7 @@ export function AgentForm({
             />
           </div>
 
-          <div className="flex w-80 shrink-0 flex-col gap-4 overflow-y-auto pr-1">
+          <div className="order-first flex shrink-0 flex-col gap-4 md:order-none md:w-80 md:overflow-y-auto md:pr-1">
             <div className="flex flex-col gap-1.5">
               <label className={LABEL}>{a.fieldName}</label>
               <input
@@ -969,6 +979,7 @@ export function AgentForm({
                   >
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-1.5">
+                        <SkillIcon icon={s.icon} category={s.category} className="size-4" />
                         <span className="min-w-0 truncate text-sm font-medium">
                           {s.title}
                         </span>
@@ -1006,7 +1017,7 @@ export function AgentForm({
                         e.stopPropagation();
                         onPreviewSkill?.(s.name);
                       }}
-                      className="mt-0.5 flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground/60 opacity-0 transition hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover/skill:opacity-100"
+                      className="mt-0.5 flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground/60 opacity-0 transition [@media(hover:none)]:opacity-100 hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover/skill:opacity-100"
                     >
                       <Info size={13} />
                     </span>
@@ -1376,7 +1387,7 @@ export function SkillForm({
         /* ВКЛАДКИ ВМЕСТО НАЗВАНИЯ. «Новый навык» в шапке ничего не сообщал —
            человек и так знает, что открыл, — а вкладки занимали отдельную
            строку под ней. Теперь одна строка вместо двух. */
-        <div className="inline-flex shrink-0 gap-0.5 rounded-lg bg-muted/60 p-0.5">
+        <div className="inline-flex min-w-0 gap-0.5 overflow-x-auto rounded-lg bg-muted/60 p-0.5">
           {([
             ["fields", a.skillTabFields, 0],
             ["files", a.skillFilesLabel, fileCount],
@@ -1386,7 +1397,7 @@ export function SkillForm({
               type="button"
               onClick={() => setPane(key)}
               className={cn(
-                "flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors",
+                "flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-colors sm:px-3",
                 pane === key
                   ? "bg-background font-medium text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground",
@@ -1404,13 +1415,13 @@ export function SkillForm({
           ))}
         </div>
       }
-      className="flex h-[80dvh] w-full max-w-5xl flex-col"
+      className="flex h-[80dvh] w-full max-w-5xl flex-col max-md:h-[calc(100dvh-2rem)] max-md:p-4"
     >
       {pane === "fields" ? (
-        <div className="flex min-h-0 flex-1 gap-5 overflow-hidden">
+        <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto md:flex-row md:overflow-hidden">
           {/* Инструкция — главное поле навыка, его пишут и переписывают,
               поэтому она во всю высоту. Справа короткие свойства. */}
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-1.5">
+          <div className="flex min-h-[60dvh] min-w-0 flex-1 flex-col gap-1.5 md:min-h-0">
             <FieldLabel label={a.skillFieldBody} hint={a.skillFieldBodyHint} />
             <textarea
               value={body}
@@ -1420,7 +1431,7 @@ export function SkillForm({
             />
           </div>
 
-          <div className="flex w-80 shrink-0 flex-col gap-4 overflow-y-auto pr-1">
+          <div className="order-first flex shrink-0 flex-col gap-4 md:order-none md:w-80 md:overflow-y-auto md:pr-1">
             <div className="flex flex-col gap-1.5">
               <FieldLabel label={a.skillFieldName} hint={a.skillFieldNameHint} />
               <input
@@ -1584,10 +1595,12 @@ export function CreateButton({
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+        className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 max-sm:size-8 max-sm:justify-center max-sm:p-0"
       >
         <Plus className="size-4" />
-        {label}
+        {/* На телефоне — только «+», в размер кнопок поиска и фильтров рядом:
+            с подписью кнопка не помещалась в их ряд. Имя остаётся для чтения. */}
+        <span className="max-sm:sr-only">{label}</span>
       </button>
       {open && (
         <div
@@ -1821,6 +1834,95 @@ function FolderNode({
  *
  *  Файлы грузим ПО ОДНОМУ, по клику: навык — это десятки файлов и сотни
  *  килобайт, тащить их разом значит ждать ради того, что вряд ли откроют. */
+/** Просмотр агента — у встроенного и у своего одинаково: полное описание,
+ *  модель, навыки и инструкция целиком. Карточка показывает лишь начало
+ *  описания, и понять, о чём агент, было негде: встроенный вообще не
+ *  открывался. Устроено как просмотр навыка: инструкция во всю высоту,
+ *  свойства сбоку, на телефоне — друг под другом. */
+function AgentView({
+  agent,
+  onClose,
+  onEdit,
+}: {
+  agent: Agent;
+  onClose: () => void;
+  /** Только у своего: у встроенного правки нет. */
+  onEdit?: () => void;
+}) {
+  const t = useT();
+  const a = t.agents;
+  const cfg = agent.config ?? {};
+  const model = cfg.model_id as string | undefined;
+  const effort = cfg.effort as EffortLevel | undefined;
+  const chip = "rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground";
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={
+        <div className="flex min-w-0 items-center gap-2">
+          <Bot className="size-5 shrink-0 text-muted-foreground" />
+          <h2 className="min-w-0 truncate text-lg font-semibold">{agent.name}</h2>
+        </div>
+      }
+      className="flex h-[80dvh] w-full max-w-5xl flex-col max-md:h-[calc(100dvh-2rem)] max-md:p-4"
+    >
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto md:flex-row md:overflow-hidden">
+          <div className="flex min-h-[50dvh] min-w-0 flex-1 flex-col gap-1.5 md:min-h-0">
+            <span className={LABEL}>{a.fieldPrompt}</span>
+            <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-border/60 p-4">
+              <MessageResponse>{agent.system_prompt}</MessageResponse>
+            </div>
+          </div>
+
+          <div className="order-first flex shrink-0 flex-col gap-4 md:order-none md:w-72 md:overflow-y-auto md:pr-1">
+            {agent.description && (
+              <div className="flex flex-col gap-1.5">
+                <span className={LABEL}>{a.fieldDescription}</span>
+                <p className="text-sm leading-relaxed text-foreground">{agent.description}</p>
+              </div>
+            )}
+            {(model || effort) && (
+              <div className="flex flex-col gap-1.5">
+                <span className={LABEL}>{a.fieldModel}</span>
+                <div className="flex flex-wrap gap-1">
+                  {model && <span className={chip}>{model}</span>}
+                  {effort && <span className={chip}>{EFFORT_LABELS[effort] ?? effort}</span>}
+                </div>
+              </div>
+            )}
+            {agent.skills.length > 0 && (
+              <div className="flex flex-col gap-1.5">
+                <span className={LABEL}>{a.fieldSkills}</span>
+                <div className="flex flex-wrap gap-1">
+                  {agent.skills.map((sk) => (
+                    <span key={sk} className={chip}>{sk}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {onEdit && (
+          <div className="flex shrink-0 justify-end border-t border-border/60 pt-3">
+            <button
+              type="button"
+              onClick={onEdit}
+              className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              <Pencil className="size-4" />
+              {a.skillEdit}
+            </button>
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 function SkillView({
   title,
   description,
@@ -1872,15 +1974,15 @@ function SkillView({
       open
       onClose={onClose}
       title={title}
-      className="flex h-[80dvh] w-full max-w-5xl flex-col"
+      className="flex h-[80dvh] w-full max-w-5xl flex-col max-md:h-[calc(100dvh-2rem)] max-md:p-4"
     >
       <div className="flex min-h-0 flex-1 flex-col gap-3">
         {description && (
           <p className="shrink-0 text-sm text-muted-foreground">{description}</p>
         )}
 
-        <div className="flex min-h-0 flex-1 gap-3">
-          <div className="w-60 shrink-0 overflow-y-auto rounded-xl border border-border/60 p-1">
+        <div className="flex min-h-0 flex-1 flex-col gap-3 md:flex-row">
+          <div className="max-h-40 shrink-0 overflow-y-auto rounded-xl border border-border/60 p-1 md:max-h-none md:w-60">
             <FileTree nodes={tree} active={active} onPick={setActive} />
           </div>
 
@@ -1972,6 +2074,11 @@ function SkillCard({
     >
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
+          <SkillIcon
+            icon={mine ? "" : (skill as SkillInfo).icon}
+            category={skill.category}
+            className="size-4"
+          />
           <span
             className="truncate text-sm font-medium text-foreground"
           >
@@ -2008,7 +2115,7 @@ function SkillCard({
                 onEdit?.(mine);
               }}
               aria-label={a.edit}
-              className="rounded-md p-1.5 text-muted-foreground/60 opacity-0 transition hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+              className="rounded-md p-1.5 text-muted-foreground/60 opacity-0 transition [@media(hover:none)]:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
             >
               <Pencil className="size-3.5" />
             </button>
@@ -2019,7 +2126,7 @@ function SkillCard({
                 onDelete?.(mine);
               }}
               aria-label={a.delete}
-              className="rounded-md p-1.5 text-muted-foreground/60 opacity-0 transition hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
+              className="rounded-md p-1.5 text-muted-foreground/60 opacity-0 transition [@media(hover:none)]:opacity-100 hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
             >
               <Trash2 className="size-3.5" />
             </button>
@@ -2130,7 +2237,9 @@ function ListControls({
   );
 
   return (
-    <div ref={rootRef} className="flex items-center gap-1.5">
+    // На телефоне — своим рядом ПОД вкладками: первый ряд отдан вкладкам и
+    // «+» справа, как у кнопки создания на десктопе.
+    <div ref={rootRef} className="flex items-center gap-1.5 max-sm:order-last max-sm:w-full">
       {searchOpen ? (
         <div className="relative w-44">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -2231,14 +2340,15 @@ export function AgentsScreen({
   onAskAssistant?: (opener: string) => void;
 }) {
   const t = useT();
-  const { locale } = useLocale();
   const a = t.agents;
+  const { locale } = useLocale();
   const api = useAgentLibrary();
   const [formOpen, setFormOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Agent | null>(null);
   const [busy, setBusy] = React.useState(false);
   // Удаление спрашиваем: вместе с агентом уходит его память, и вернуть нечем.
   const [deleting, setDeleting] = React.useState<Agent | null>(null);
+  const [viewingAgent, setViewingAgent] = React.useState<Agent | null>(null);
   const [tab, setTab] = React.useState<"agents" | "skills" | "connectors">("agents");
   // Окно «Свой сервер» на вкладке коннекторов: кнопка стоит в шапке раздела.
   const [customConnector, setCustomConnector] = React.useState(false);
@@ -2504,7 +2614,7 @@ export function AgentsScreen({
 
   return (
     <div className="min-h-0 flex-1 overflow-auto">
-      <div className="flex w-full flex-col gap-5 p-6">
+      <div className="flex w-full flex-col gap-5 p-4 sm:p-6">
         {/* Один ряд: разделы, управление списком, кнопка создания. Заголовка
             здесь НЕТ — его рисует хедер воркспейса. */}
         <div className="flex flex-wrap items-center gap-2">
@@ -2575,10 +2685,10 @@ export function AgentsScreen({
               <button
                 type="button"
                 onClick={() => setCustomConnector(true)}
-                className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 max-sm:size-8 max-sm:justify-center max-sm:p-0"
               >
                 <Plus className="size-4" />
-                {t.connectors.custom}
+                <span className="max-sm:sr-only">{t.connectors.custom}</span>
               </button>
             )}
           </div>
@@ -2602,10 +2712,12 @@ export function AgentsScreen({
                   <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     {a.groupAgents}
                   </h2>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
                   {visibleAgents.map((agent) => (
                     <AgentCard
                       key={agent.id}
                       agent={agent}
+                      onOpen={() => setViewingAgent(agent)}
                       onEdit={() => {
                         setEditing(agent);
                         setFormOpen(true);
@@ -2618,6 +2730,7 @@ export function AgentsScreen({
                       }}
                     />
                   ))}
+                  </div>
                 </div>
               )}
               {visibleSkills.length > 0 && (
@@ -2667,12 +2780,11 @@ export function AgentsScreen({
               {customConnectorDialog}
             </>
           ) : (
-            /* Те же два раздела, что у навыков: свои серверы и каталог. */
             <ConnectorsPanel
               items={connectors}
               sections={[
                 { title: a.groupConnectorsMine, items: visibleConnectors.filter((c) => c.custom) },
-                { title: a.groupSkillsBuiltin, items: visibleConnectors.filter((c) => !c.custom) },
+                { title: a.groupLibrary, items: visibleConnectors.filter((c) => !c.custom) },
               ]}
               onChanged={reloadConnectors}
               customOpen={customConnector}
@@ -2691,18 +2803,19 @@ export function AgentsScreen({
           ) : (
             /* ДВА РАЗДЕЛА вместо одной сетки: свои навыки и коробочные —
                разные вещи (свои правятся и удаляются, коробочные только
-               читаются), и раньше их различали шрифтом имени прямо в общем
-               списке. Заголовок делает это внятно и без намёков. */
+               читаются). Свои — «Мои навыки», встроенные — «Библиотека». */
             <div className="flex flex-col gap-6">
               {([
                 [a.groupSkillsMine, visibleSkills.filter((sk) => "id" in sk)],
-                [a.groupSkillsBuiltin, visibleSkills.filter((sk) => !("id" in sk))],
+                [a.groupLibrary, visibleSkills.filter((sk) => !("id" in sk))],
               ] as const).map(([title, items]) =>
                 items.length === 0 ? null : (
-                  <div key={title} className="flex flex-col gap-2">
-                    <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      {title}
-                    </h2>
+                  <div key={title ?? "builtin"} className="flex flex-col gap-2">
+                    {title && (
+                      <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        {title}
+                      </h2>
+                    )}
                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
                       {items.map((sk) => (
                         <SkillCard
@@ -2733,23 +2846,41 @@ export function AgentsScreen({
             {api.agents.length === 0 ? a.empty : a.nothingFound}
           </div>
         ) : (
-          <div className="flex flex-col gap-2">
-            {visibleAgents.map((agent) => (
-              <AgentCard
-                key={agent.id}
-                agent={agent}
-                onEdit={() => {
-                  setEditing(agent);
-                  setFormOpen(true);
-                }}
-                onToggle={(enabled) => void api.toggle(agent.id, enabled)}
-                onDelete={() => setDeleting(agent)}
-                onConnectionsChanged={() => {
-                  invalidateAgents();
-                  void api.refresh();
-                }}
-              />
-            ))}
+          /* Как у навыков: «Мои агенты» и «Библиотека». */
+          <div className="flex flex-col gap-6">
+            {([
+              [a.groupAgentsMine, visibleAgents.filter((ag) => ag.editable)],
+              [a.groupLibrary, visibleAgents.filter((ag) => !ag.editable)],
+            ] as const).map(([title, items]) =>
+              items.length === 0 ? null : (
+                <div key={title ?? "builtin"} className="flex flex-col gap-2">
+                  {title && (
+                    <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      {title}
+                    </h2>
+                  )}
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                    {items.map((agent) => (
+                      <AgentCard
+                      key={agent.id}
+                      agent={agent}
+                      onOpen={() => setViewingAgent(agent)}
+                      onEdit={() => {
+                        setEditing(agent);
+                        setFormOpen(true);
+                      }}
+                      onToggle={(enabled) => void api.toggle(agent.id, enabled)}
+                      onDelete={() => setDeleting(agent)}
+                      onConnectionsChanged={() => {
+                        invalidateAgents();
+                        void api.refresh();
+                      }}
+                    />
+                    ))}
+                  </div>
+                </div>
+              ),
+            )}
           </div>
         )}
       </div>
@@ -2786,6 +2917,23 @@ export function AgentsScreen({
           </div>
         </div>
       </Modal>
+
+      {viewingAgent && (
+        <AgentView
+          agent={viewingAgent}
+          onClose={() => setViewingAgent(null)}
+          onEdit={
+            viewingAgent.editable
+              ? () => {
+                  const target = viewingAgent;
+                  setViewingAgent(null);
+                  setEditing(target);
+                  setFormOpen(true);
+                }
+              : undefined
+          }
+        />
+      )}
 
       {/* Форма агента — поверх списка, как и всё остальное в разделе. Раньше
           она подменяла экран целиком, и раздел за ней исчезал. */}

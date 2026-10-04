@@ -3,7 +3,7 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { useConnectorLabels } from "@/lib/connector-registry";
 import { createPortal } from "react-dom";
-import { ChevronRight, MessageSquareText, Sparkles, Bot, X } from "lucide-react";
+import { ChevronRight, Sparkles, Bot, X } from "lucide-react";
 import { ThinkingPanel } from "@/components/chat/thinking-panel";
 import {
   TimelineNode,
@@ -57,7 +57,7 @@ const HEADER: Record<Locale, { running: string; done: string }> = {
  */
 function currentStepLabel(steps: ThoughtStep[], locale: Locale): string {
   const last = steps[steps.length - 1];
-  if (!last || last.kind !== "tool") return HEADER[locale].running;
+  if (!last || last.kind === "reasoning") return HEADER[locale].running;
   return describeTool(last.name, last.args, locale).title;
 }
 
@@ -657,21 +657,6 @@ const StepRow = memo<StepRowProps>(function StepRow({
             summary={step.summary}
             animate
           />
-        }
-      />
-    );
-  }
-  if (step.kind === "note") {
-    // Реплика модели между тулами («Проверю файл…») — целиком, без сжатия:
-    // это уже короткая фраза, и сказана она человеку, а не себе.
-    return (
-      <TimelineNode
-        icon={MessageSquareText}
-        status="complete"
-        last={last}
-        hideIcon={hideIcon}
-        label={
-          <MessageResponse className="text-sm text-muted-foreground">{step.text}</MessageResponse>
         }
       />
     );

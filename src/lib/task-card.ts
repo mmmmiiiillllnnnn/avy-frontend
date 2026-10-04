@@ -103,7 +103,7 @@ export function taskLiveAction(step: TaskStep, locale: Locale): string | null {
   if (lastPart.type === "text") return locale === "ru" ? "Пишу ответ…" : "Writing the answer…";
   const last = lastPart.steps[lastPart.steps.length - 1];
   if (!last) return null;
-  if (last.kind !== "tool") return locale === "ru" ? "Думаю…" : "Thinking…";
+  if (last.kind === "reasoning") return locale === "ru" ? "Думаю…" : "Thinking…";
   const { title, target } = describeTool(last.name, last.args, locale, "running");
   // Цель (файл, навык) уточняет действие; команда bash и URL — шум.
   const showTarget = target && !["bash", "web_fetch", "task"].includes(last.name);

@@ -91,11 +91,6 @@ export type ThoughtStep =
   // история). Когда она есть, СЫРОЙ текст в UI не показывается вовсе (история
   // шлёт text="" вместе с summary); пока нет — text рисуется обрезанным.
   | { kind: "reasoning"; text: string; summary?: string }
-  // note — промежуточный текст модели между вызовами тул («Проверю файл…»).
-  // В стриме и истории такого шага нет: его делает foldParts (lib/chain-fold)
-  // при отрисовке из текстовой части, за которой ещё идёт цепочка. Иначе
-  // каждая реплика рвала бы цепочку на отдельные блоки по одной туле.
-  | { kind: "note"; text: string }
   | {
       kind: "tool";
       // id вызова (tool_call_id) — для привязки результата (sources/file) к шагу
@@ -212,6 +207,11 @@ export type PendingPermission = {
 export type ThreadState = {
   messages: ChatMessage[];
   isStreaming: boolean;
+  // id пузыря ассистента, в который сейчас идут кадры (null — хода нет).
+  // Лента по нему решает, какой ряд «работает». Раньше это был ПОСЛЕДНИЙ
+  // ряд ленты — но реплика посреди хода встаёт после пузыря, и тот сразу
+  // получал панель лайков и терял индикатор, хотя ход шёл.
+  streamingId: string | null;
   error: string | null;
   // Очередь заявок approval (режим Avy Code). Пуста = нет паузы. Агент может
   // вызвать несколько тулов параллельно — они все придут как отдельные
@@ -230,6 +230,7 @@ export type ThreadState = {
 const EMPTY: ThreadState = {
   messages: [],
   isStreaming: false,
+  streamingId: null,
   error: null,
   pendingPermissions: [],
   pendingQuestions: null,
@@ -246,12 +247,14 @@ type ThreadRecord = {
   frames: number;
   // id сообщения ассистента, в которое стримим (для патчей).
   assistantId: string | null;
-  // AbortController активного цикла чтения (НЕ сервера — только локального fetch).
+  // AbortController активного цикла чтения (НЕ сервера — только локального
+  // fetch). Он же — ВЛАДЕЛЕЦ записи: цикл применяет кадры и завершает ход,
+  // только пока r.ctrl — его контроллер. Уход из сессии (detach) и новый ход
+  // (start) забирают владение, и прежний цикл замолкает: раньше он, дочитав
+  // свой хвост (или упав по abort), снимал isStreaming и слал onDone поверх
+  // уже идущего НОВОГО хода — лента шла, а поле ввода считало, что всё
+  // закончилось.
   ctrl: AbortController | null;
-  // Ход останавливает ПОЛЬЗОВАТЕЛЬ (Stop / Esc), а не уход из сессии. Обе
-  // ситуации дают AbortError, но означают разное: при уходе ход жив на сервере
-  // и isStreaming сохраняем (подхватит reattach), при остановке — снимаем.
-  stopping: boolean;
   listeners: Set<() => void>;
   // Связка ключа сабагента (поле agent в событиях) → tool_call_id шага task, в
   // окно которого его лента пишется. Реального id вызова task в ns нет, поэтому
@@ -346,7 +349,6 @@ function rec(threadId: string): ThreadRecord {
     frames: 0,
     assistantId: null,
     ctrl: null,
-    stopping: false,
     listeners: new Set(),
     subagentMap: new Map(),
     emitRaf: 0,
@@ -380,6 +382,32 @@ function rec(threadId: string): ThreadRecord {
  * берём её целиком. Хвост начинается с пузыря ассистента (реаттач, ретрай,
  * доставка) — реплика-граница остаётся из истории, режем ПОСЛЕ неё.
  */
+/**
+ * Сообщения ленты, которых ещё нет в истории, — когда начало живого хода
+ * неизвестно (turnStart пуст: ход подхвачен после обрыва или перезапуска
+ * сервера). Реплики человека, отправленные в этой сессии, серверного id не
+ * имеют, и раньше все они считались «живыми» и дописывались ПОСЛЕ истории,
+ * где они уже есть: после рестарта бэкенда посреди хода обе реплики треда
+ * всплывали дублями в конце ленты (dev, 28.09). Реплику без id узнаём по
+ * тексту: история начинается с того, что человек видел у себя (дальше может
+ * идти блок «Прикреплённые файлы:»). Каждая реплика истории закрывает одну
+ * локальную — две одинаковые подряд не склеиваются в одну.
+ */
+export function unsavedMessages(live: ChatMessage[], history: ChatMessage[]): ChatMessage[] {
+  const used = new Set<number>();
+  return live.filter((m) => {
+    if (m.serverId != null) return !history.some((h) => h.serverId === m.serverId);
+    const text = m.content.trim();
+    if (m.role !== "user" || m.pending || text === "") return true;
+    const i = history.findIndex(
+      (h, idx) => !used.has(idx) && h.role === "user" && h.content.trim().startsWith(text),
+    );
+    if (i < 0) return true;
+    used.add(i);
+    return false;
+  });
+}
+
 export function historyBeforeLiveTurn(
   all: ChatMessage[],
   liveTail: ChatMessage[],
@@ -1379,7 +1407,7 @@ function applyEvent(
     case "permission_request": {
       // Code-режим: делегируем в code-streams (изолирован от основного стора).
       handlePermissionRequest(
-        { rec, setState, consume, resumeBubble },
+        { rec, setState, beginRun, runTurn, resumeBubble },
         threadId,
         ev as { interrupt_id?: string; tool: string; args: Record<string, unknown> },
       );
@@ -1508,6 +1536,7 @@ function applyEvent(
         ];
       });
       r.assistantId = fresh.id;
+      setState(threadId, { streamingId: fresh.id });
       break;
     }
   }
@@ -1532,30 +1561,47 @@ type TurnInput = {
 } & RunCallbacks;
 
 /**
+ * Кадры, после которых ход на сервере окончен: done — штатный конец, stopped —
+ * остановка (человеком или брошенный ход), error — ход упал. Дальше в ленте
+ * ничего не будет, и ждать закрытия HTTP-потока незачем — конец хода
+ * определяется СОДЕРЖАНИЕМ кадров, а не транспортом: прокси может подержать
+ * соединение, сервер — дописать служебные кадры (фразы рассуждений) после.
+ */
+function isTerminal(ev: ChatEvent): boolean {
+  return ev.type === "done" || ev.type === "stopped" || ev.type === "error";
+}
+
+/**
  * Прокрутить async-итератор кадров хода: считать каждый кадр, применить к
  * состоянию, вести счётчик frames (offset для reattach). Любой кадр учитывается
  * в frames — так reattach с offset=frames не повторит уже показанное.
+ *
+ * `ctrl` — контроллер этого цикла. Кадр применяется, только пока цикл владеет
+ * записью (r.ctrl === ctrl): после detach/нового хода оставшиеся в буфере
+ * fetch-а кадры не должны ни лечь в ленту, ни сдвинуть frames — иначе reattach,
+ * уже стартовавший с прежнего offset, показал бы их второй раз.
+ *
+ * Пузырь-приёмник читаем из записи на каждом кадре: реплика человека (кадр
+ * `interject`) открывает новый посреди хода.
  */
 async function consume(
   threadId: string,
   source: AsyncGenerator<ChatEvent>,
-  assistantId: string,
+  ctrl: AbortController,
   cbs: RunCallbacks,
-) {
+): Promise<void> {
   const r = rec(threadId);
-  // Пузырь-приёмник может СМЕНИТЬСЯ посреди хода: реплика человека (кадр
-  // `interject`) открывает новый. Поэтому стартовое значение кладём в запись
-  // и дальше читаем его на каждом кадре, а не держим в параметре.
-  r.assistantId = assistantId;
   try {
     for await (const ev of source) {
+      if (r.ctrl !== ctrl) return;
       r.frames += 1;
-      applyEvent(threadId, ev, r.assistantId ?? assistantId, cbs.onTitle);
+      applyEvent(threadId, ev, r.assistantId ?? "", cbs.onTitle);
+      if (isTerminal(ev)) return;
     }
   } finally {
     // Слить хвост буфера сабагентов: последние дельты (за <FLUSH_MS до конца или
     // до отмены/ошибки) иначе не попали бы в ленту. finally покрывает и throw.
-    flushSubagentBuffer(threadId, r.assistantId ?? assistantId);
+    flushSubagentBuffer(threadId, r.assistantId ?? "");
   }
 }
 
@@ -1583,6 +1629,59 @@ function resumeBubble(threadId: string): string {
 }
 
 /**
+ * Начать локальный цикл хода: пузырь-приёмник, флаг стрима, владение записью.
+ * Возвращает контроллер, которым цикл потом завершает ход (finishRun).
+ */
+function beginRun(threadId: string, assistantId: string): AbortController {
+  const r = rec(threadId);
+  const ctrl = new AbortController();
+  r.ctrl = ctrl;
+  r.assistantId = assistantId;
+  setState(threadId, { isStreaming: true, streamingId: assistantId, error: null });
+  return ctrl;
+}
+
+/**
+ * Ход, который вёл этот цикл, окончен (терминальный кадр, конец потока,
+ * ошибка сети или abort по «Стоп»). Ничего не делает, если запись уже у
+ * другого цикла: тогда конец ЭТОГО цикла ничего не значит для ленты.
+ */
+function finishRun(threadId: string, ctrl: AbortController, cbs: RunCallbacks): void {
+  const r = rec(threadId);
+  if (r.ctrl !== ctrl) return;
+  r.ctrl = null;
+  // Кадры кончились раньше потока (терминальный кадр) — отпускаем соединение.
+  ctrl.abort();
+  setState(threadId, { isStreaming: false, streamingId: null });
+  cbs.onDone?.(threadId);
+  afterTurn(threadId, cbs);
+}
+
+/**
+ * Прогнать ход целиком: цикл кадров + завершение. Ошибка сети — в состояние;
+ * AbortError при живом владении — это «Стоп» (stop() рвёт fetch, не отдавая
+ * запись), и ход тоже завершён. Потеря владения (detach, новый ход) — выход
+ * молча: ход на сервере жив или уже чужой.
+ */
+async function runTurn(
+  threadId: string,
+  ctrl: AbortController,
+  source: AsyncGenerator<ChatEvent>,
+  cbs: RunCallbacks,
+): Promise<void> {
+  const r = rec(threadId);
+  try {
+    await consume(threadId, source, ctrl, cbs);
+  } catch (e) {
+    if (r.ctrl !== ctrl) return;
+    if ((e as Error).name !== "AbortError") {
+      setState(threadId, { error: (e as Error).message });
+    }
+  }
+  finishRun(threadId, ctrl, cbs);
+}
+
+/**
  * Продолжить ход после карточки (вопрос ask_user или коннектор): тот же путь,
  * что обычный ход, но с полем `answers` вместо сообщения — бэк подаёт его в
  * граф как Command(resume=...), граф выходит из interrupt и досчитывает ход.
@@ -1595,38 +1694,25 @@ async function resumeWithAnswers(threadId: string, answers: AskUserAnswer[] | Co
   const assistantId = resumeBubble(threadId);
 
   const run = r.codeRun;
-  const ctrl = new AbortController();
-  r.ctrl = ctrl;
-  try {
-    await consume(
-      threadId,
-      streamChat(
-        {
-          message: "",
-          threadId,
-          modelId: run?.modelId,
-          effort: run?.effort,
-          agentId: run?.agentId,
-          permissionMode: run?.permissionMode,
-          answers,
-        },
-        ctrl.signal,
-      ),
-      assistantId,
-      { onTitle: run?.onTitle, onDone: run?.onDone },
-    );
-  } catch (e) {
-    if ((e as Error).name !== "AbortError") {
-      setState(threadId, { error: (e as Error).message });
-    } else if (!r.stopping) {
-      return; // ход жив на сервере — состояние не трогаем
-    }
-  }
-  if (r.ctrl === ctrl) r.ctrl = null;
-  r.stopping = false;
-  setState(threadId, { isStreaming: false });
-  run?.onDone?.(threadId);
-  afterTurn(threadId, { onTitle: run?.onTitle, onDone: run?.onDone });
+  const cbs = { onTitle: run?.onTitle, onDone: run?.onDone };
+  const ctrl = beginRun(threadId, assistantId);
+  await runTurn(
+    threadId,
+    ctrl,
+    streamChat(
+      {
+        message: "",
+        threadId,
+        modelId: run?.modelId,
+        effort: run?.effort,
+        agentId: run?.agentId,
+        permissionMode: run?.permissionMode,
+        answers,
+      },
+      ctrl.signal,
+    ),
+    cbs,
+  );
 }
 
 export const chatStreams = {
@@ -1706,10 +1792,7 @@ export const chatStreams = {
       // обоих пузырей).
       const live = r.state.messages;
       const startIdx = r.turnStart ? live.findIndex((m) => m.id === r.turnStart) : -1;
-      const liveTail =
-        startIdx >= 0
-          ? live.slice(startIdx)
-          : live.filter((m) => m.serverId == null || !all.some((h) => h.serverId === m.serverId));
+      const liveTail = startIdx >= 0 ? live.slice(startIdx) : unsavedMessages(live, all);
       r.allMessages = [...historyBeforeLiveTurn(all, liveTail), ...liveTail];
       setState(threadId, {
         messages: r.allMessages.slice(-HISTORY_PAGE),
@@ -1726,6 +1809,7 @@ export const chatStreams = {
     r.state = {
       messages: all.slice(-HISTORY_PAGE),
       isStreaming: false,
+      streamingId: null,
       error: null,
       pendingPermissions: [],
       pendingQuestions: null,
@@ -1830,7 +1914,6 @@ export const chatStreams = {
 
     const userMsgId = nextId();
     const assistantId = nextId();
-    r.assistantId = assistantId;
     r.frames = 0;
     r.turnStart = userMsgId; // ход начинается с этой реплики (см. setHistory)
     r.subagentMap = new Map(); // связки сабагентов — на каждый ход свои
@@ -1860,46 +1943,26 @@ export const chatStreams = {
       { id: assistantId, role: "assistant", content: "", parts: [] },
     ]);
     r.pendingDecisions = [];
-    setState(threadId, { isStreaming: true, error: null, pendingPermissions: [] });
+    setState(threadId, { pendingPermissions: [] });
 
-    const ctrl = new AbortController();
-    r.ctrl = ctrl;
-    try {
-      await consume(
-        threadId,
-        streamChat(
-          {
-            message: opts.sendMessage,
-            threadId,
-            modelId: opts.modelId,
-            effort: opts.effort,
-            mode: opts.mode,
-            permissionMode: opts.permissionMode,
-            agentId: opts.agentId,
-          },
-          ctrl.signal,
-        ),
-        assistantId,
-        opts,
-      );
-    } catch (e) {
-      // AbortError = либо уход из сессии (локальный отцеп, ход жив на сервере),
-      // либо ОСТАНОВКА пользователем (Stop/Esc). Различаем по флагу stopping:
-      // при уходе состояние оставляем streaming (подхватит reattach), при
-      // остановке — проваливаемся вниз и снимаем флаг, иначе инпут остаётся
-      // заблокированным до перезагрузки страницы.
-      if ((e as Error).name !== "AbortError") {
-        setState(threadId, { error: (e as Error).message });
-      } else if (!r.stopping) {
-        return; // НЕ снимаем isStreaming — ход жив на сервере
-      }
-    }
-    // Дошли до конца стрима (done) — ход завершён.
-    if (r.ctrl === ctrl) r.ctrl = null;
-    r.stopping = false; // ход закончен — снимаем пометку остановки
-    setState(threadId, { isStreaming: false });
-    opts.onDone?.(threadId);
-    afterTurn(threadId, opts);
+    const ctrl = beginRun(threadId, assistantId);
+    await runTurn(
+      threadId,
+      ctrl,
+      streamChat(
+        {
+          message: opts.sendMessage,
+          threadId,
+          modelId: opts.modelId,
+          effort: opts.effort,
+          mode: opts.mode,
+          permissionMode: opts.permissionMode,
+          agentId: opts.agentId,
+        },
+        ctrl.signal,
+      ),
+      opts,
+    );
   },
 
   /**
@@ -1951,8 +2014,9 @@ export const chatStreams = {
     if (!r.state.pendingQuestions) return;
 
     // Карточку снимаем сразу: ответ зафиксирован, второй раз её показывать
-    // нечего, а её присутствие блокирует инпут.
-    setState(threadId, { pendingQuestions: null, isStreaming: true, error: null });
+    // нечего, а её присутствие блокирует инпут. Флаг стрима ставит
+    // resumeWithAnswers вместе с пузырём-приёмником.
+    setState(threadId, { pendingQuestions: null });
     await resumeWithAnswers(threadId, answers);
   },
 
@@ -1963,7 +2027,7 @@ export const chatStreams = {
   async answerConnector(threadId: string, connected: boolean) {
     const r = rec(threadId);
     if (!r.state.pendingConnector) return;
-    setState(threadId, { pendingConnector: null, isStreaming: true, error: null });
+    setState(threadId, { pendingConnector: null });
     await resumeWithAnswers(threadId, { connected });
   },
 
@@ -1973,7 +2037,7 @@ export const chatStreams = {
    */
   async resolvePermission(threadId: string, decision: "approve" | "reject", comment?: string) {
     await codeResolvePermission(
-      { rec, setState, consume, resumeBubble },
+      { rec, setState, beginRun, runTurn, resumeBubble },
       threadId,
       decision,
       comment,
@@ -2000,7 +2064,6 @@ export const chatStreams = {
     if (!msgs0.length || msgs0[msgs0.length - 1].role !== "assistant") return;
 
     const assistantId = nextId();
-    r.assistantId = assistantId;
     r.turnStart = assistantId; // ход = новый пузырь, реплика человека — из истории
     r.frames = 0;
     r.subagentMap = new Map();
@@ -2015,37 +2078,22 @@ export const chatStreams = {
       ...msgs.slice(0, -1),
       { id: assistantId, role: "assistant", content: "", parts: [] },
     ]);
-    setState(threadId, { isStreaming: true, error: null });
 
-    const ctrl = new AbortController();
-    r.ctrl = ctrl;
-    try {
-      await consume(
-        threadId,
-        streamRetry(
-          {
-            threadId,
-            modelId: opts.modelId,
-            effort: opts.effort,
-            mode: opts.mode,
-          },
-          ctrl.signal,
-        ),
-        assistantId,
-        opts,
-      );
-    } catch (e) {
-      if ((e as Error).name !== "AbortError") {
-        setState(threadId, { error: (e as Error).message });
-      } else if (!r.stopping) {
-        return; // уход из сессии — ход жив на сервере (см. start)
-      }
-    }
-    if (r.ctrl === ctrl) r.ctrl = null;
-    r.stopping = false; // ход закончен — снимаем пометку остановки
-    setState(threadId, { isStreaming: false });
-    opts.onDone?.(threadId);
-    afterTurn(threadId, opts);
+    const ctrl = beginRun(threadId, assistantId);
+    await runTurn(
+      threadId,
+      ctrl,
+      streamRetry(
+        {
+          threadId,
+          modelId: opts.modelId,
+          effort: opts.effort,
+          mode: opts.mode,
+        },
+        ctrl.signal,
+      ),
+      opts,
+    );
   },
 
   /**
@@ -2070,7 +2118,6 @@ export const chatStreams = {
 
     const userMsgId = nextId();
     const assistantId = nextId();
-    r.assistantId = assistantId;
     r.frames = 0;
     r.subagentMap = new Map();
     if (r.subagentFlush) {
@@ -2086,39 +2133,24 @@ export const chatStreams = {
       { id: userMsgId, role: "user", content: newText },
       { id: assistantId, role: "assistant", content: "", parts: [] },
     ]);
-    setState(threadId, { isStreaming: true, error: null });
 
-    const ctrl = new AbortController();
-    r.ctrl = ctrl;
-    try {
-      await consume(
-        threadId,
-        streamEdit(
-          {
-            threadId,
-            messageId: serverId,
-            text: newText,
-            modelId: opts.modelId,
-            effort: opts.effort,
-            mode: opts.mode,
-          },
-          ctrl.signal,
-        ),
-        assistantId,
-        opts,
-      );
-    } catch (e) {
-      if ((e as Error).name !== "AbortError") {
-        setState(threadId, { error: (e as Error).message });
-      } else if (!r.stopping) {
-        return; // уход из сессии — ход жив на сервере (см. start)
-      }
-    }
-    if (r.ctrl === ctrl) r.ctrl = null;
-    r.stopping = false; // ход закончен — снимаем пометку остановки
-    setState(threadId, { isStreaming: false });
-    opts.onDone?.(threadId);
-    afterTurn(threadId, opts);
+    const ctrl = beginRun(threadId, assistantId);
+    await runTurn(
+      threadId,
+      ctrl,
+      streamEdit(
+        {
+          threadId,
+          messageId: serverId,
+          text: newText,
+          modelId: opts.modelId,
+          effort: opts.effort,
+          mode: opts.mode,
+        },
+        ctrl.signal,
+      ),
+      opts,
+    );
   },
 
   /**
@@ -2147,7 +2179,14 @@ export const chatStreams = {
     // первого СОДЕРЖАТЕЛЬНОГО кадра: если придёт только `done` (хода нет) —
     // состояние не трогаем, история загрузится как обычно.
     let started = false;
-    let assistantId = r.assistantId;
+    // Мы СЧИТАЛИ, что ход идёт: локальный цикл отцепили (уход из сессии,
+    // замороженная вкладка), а флаг остался ждать реаттача. Если сервер
+    // ответит, что дочитывать нечего, — ход кончился без нас, и флаг надо
+    // снять. Раньше такой ответ (одиночный done) выход «тихо» не трогал
+    // состояние: ход в UI не заканчивался никогда — квадрат в поле ввода
+    // горел, пока человек не жал «Стоп»; setHistory при живом флаге его тоже
+    // сохранял, так что залипание переживало и переоткрытие сессии.
+    const believedStreaming = r.state.isStreaming;
     // Сервер сказал, что наш offset — из прежнего хода (кадр `reset`): между
     // тем, что мы видели, и сейчас прошёл как минимум один ход без нас (сервер
     // сам вручил репорт фонового агента). Его ответ есть только в истории —
@@ -2157,48 +2196,58 @@ export const chatStreams = {
     try {
       const source = attachChat(threadId, r.frames, ctrl.signal);
       for await (const ev of source) {
+        if (r.ctrl !== ctrl) return; // снова отцепились или стартовал новый ход
         if (!started) {
           if (ev.type === "reset") {
             resetSeen = true;
             r.frames = 0;
             r.assistantId = null;
             r.turnStart = null;
-            assistantId = null;
             continue;
           }
-          if (ev.type === "done") break; // живого хода нет — выходим тихо
+          if (ev.type === "done") {
+            // Живого хода нет. Кадр не считаем: у пустого буфера он
+            // синтетический, и offset уехал бы вперёд ленты. Но id ответа из
+            // него — на пузырь: лайк и ретрай должны заработать.
+            if (believedStreaming) applyEvent(threadId, ev, r.assistantId ?? "", cbs.onTitle);
+            break;
+          }
           started = true;
           // Нужен ассистентский пузырь под стрим. После reload его нет — создаём.
-          if (!assistantId) {
-            assistantId = nextId();
+          if (!r.assistantId) {
+            const assistantId = nextId();
             r.assistantId = assistantId;
             // Реплика человека этого хода в ленте отсутствует (кадры её не
             // несут) — она придёт из истории; живой ход начинается с пузыря.
             r.turnStart = assistantId;
             patchMessages(threadId, (msgs) => [
               ...msgs,
-              { id: assistantId!, role: "assistant", content: "", parts: [] },
+              { id: assistantId, role: "assistant", content: "", parts: [] },
             ]);
           }
-          setState(threadId, { isStreaming: true, error: null });
+          setState(threadId, { isStreaming: true, streamingId: r.assistantId, error: null });
         }
         r.frames += 1;
-        applyEvent(threadId, ev, assistantId!, cbs.onTitle);
+        applyEvent(threadId, ev, r.assistantId ?? "", cbs.onTitle);
+        if (isTerminal(ev)) break;
       }
     } catch (e) {
+      if (r.ctrl !== ctrl) return;
       if ((e as Error).name !== "AbortError") {
         if (started) setState(threadId, { error: (e as Error).message });
-      } else {
-        return; // снова отцепились — ход жив на сервере
       }
     } finally {
       // Слить хвост буфера сабагентов и при успехе, и при отмене/ошибке reattach.
-      if (started) flushSubagentBuffer(threadId, assistantId!);
+      if (started) flushSubagentBuffer(threadId, r.assistantId ?? "");
     }
-    if (r.ctrl === ctrl) r.ctrl = null;
-    r.stopping = false; // ход закончен — снимаем пометку остановки
-    if (started) {
-      setState(threadId, { isStreaming: false });
+    if (r.ctrl !== ctrl) return;
+    r.ctrl = null;
+    ctrl.abort();
+    // Поток кончился — значит, хода на сервере больше нет (он закрывает
+    // /attach только по концу хода). Флаг снимаем и если стримили сами, и
+    // если лишь верили, что ход идёт.
+    if (started || believedStreaming) {
+      setState(threadId, { isStreaming: false, streamingId: null });
       cbs.onDone?.(threadId);
     }
     if (resetSeen) {
@@ -2234,11 +2283,11 @@ export const chatStreams = {
     const ctrl = new AbortController();
     r.ctrl = ctrl;
     let started = false;
-    let assistantId: string | null = null;
     let attachInstead = false;
     try {
       const source = deliverSubagentReports(threadId, r.turnParams ?? {}, ctrl.signal);
       for await (const ev of source) {
+        if (r.ctrl !== ctrl) return; // отцепились или стартовал новый ход
         if (!started) {
           if (ev.type === "done") break;
           if ((ev as { type: string }).type === "turn_in_progress") {
@@ -2247,7 +2296,7 @@ export const chatStreams = {
             break;
           }
           started = true;
-          assistantId = nextId();
+          const assistantId = nextId();
           r.assistantId = assistantId;
           r.turnStart = assistantId; // репорт-вход хода придёт из истории
           r.frames = 0;
@@ -2259,26 +2308,27 @@ export const chatStreams = {
           r.subagentBuffer = new Map();
           patchMessages(threadId, (msgs) => [
             ...msgs,
-            { id: assistantId!, role: "assistant", content: "", parts: [] },
+            { id: assistantId, role: "assistant", content: "", parts: [] },
           ]);
-          setState(threadId, { isStreaming: true, error: null });
+          setState(threadId, { isStreaming: true, streamingId: assistantId, error: null });
         }
         r.frames += 1;
-        applyEvent(threadId, ev, assistantId!, cbs.onTitle);
+        applyEvent(threadId, ev, r.assistantId ?? "", cbs.onTitle);
+        if (isTerminal(ev)) break;
       }
     } catch (e) {
+      if (r.ctrl !== ctrl) return;
       if ((e as Error).name !== "AbortError") {
         if (started) setState(threadId, { error: (e as Error).message });
-      } else {
-        return; // отцепились — ход жив на сервере, подхватит reattach
       }
     } finally {
-      if (started) flushSubagentBuffer(threadId, assistantId!);
+      if (started) flushSubagentBuffer(threadId, r.assistantId ?? "");
     }
-    if (r.ctrl === ctrl) r.ctrl = null;
-    r.stopping = false;
+    if (r.ctrl !== ctrl) return;
+    r.ctrl = null;
+    ctrl.abort();
     if (started) {
-      setState(threadId, { isStreaming: false });
+      setState(threadId, { isStreaming: false, streamingId: null });
       cbs.onDone?.(threadId);
     }
     if (attachInstead) {
@@ -2320,20 +2370,16 @@ export const chatStreams = {
     void stopChat(threadId);
     const r = records.get(threadId);
     if (!r) return;
-    // Помечаем остановку НАМЕРЕННОЙ. И уход из сессии, и Stop рвут локальный
-    // fetch одинаковым AbortError, а реакция нужна разная: при уходе ход жив
-    // на сервере и isStreaming надо СОХРАНИТЬ (его подхватит reattach), при
-    // остановке — снять, иначе инпут остаётся заблокированным до перезагрузки
-    // страницы (кадр `stopped` приходит не всегда).
-    r.stopping = true;
     // Инпут освобождаем СРАЗУ: ход на сервере уже отменён строкой выше
     // (stopChat), ждать нечего. Раньше флаг снимался только после abort через
     // 2 с и страховочного таймера — пользователь жал Stop и ещё три секунды
     // смотрел на заблокированное поле.
-    setState(threadId, { isStreaming: false });
-    // Локальный fetch рвём с небольшой задержкой — чтобы успел дойти кадр
-    // `stopped` и в ленте появилась пометка «Остановлено пользователем».
-    // На доступность ввода это уже не влияет.
+    setState(threadId, { isStreaming: false, streamingId: null });
+    // Владение записью цикл СОХРАНЯЕТ: кадр `stopped` должен дойти и поставить
+    // пометку «Остановлено пользователем», после него цикл завершит ход сам.
+    // Если сервер молчит, fetch рвём через 2 с — abort при живом владении
+    // тоже завершает ход (см. runTurn). Стартует новый ход раньше — он
+    // заберёт владение, и этот цикл замолчит.
     const ctrl = r.ctrl;
     if (ctrl) setTimeout(() => ctrl.abort(), 2000);
   },

@@ -12,10 +12,9 @@ import {
   Info,
   MessageCircle,
   Plug,
-  Plus,
   SlidersHorizontal,
+  Plus,
   Trash2,
-  Wrench,
 } from "lucide-react";
 
 import { Modal } from "@/components/ui/modal";
@@ -28,6 +27,7 @@ import { useConnectorItems, useConnectorList } from "@/components/agents/connect
 import { ConnectorRulesDialog } from "@/components/agents/connector-rules-dialog";
 import { ConnectorLogo } from "@/components/agents/connectors-panel";
 import { LibraryPickerModal } from "@/components/ui/library-picker-modal";
+import { SkillIcon } from "@/components/ui/skill-icon";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -46,11 +46,12 @@ import {
   fetchAgents,
   fetchMySkills,
   fetchSkillsCatalog,
-  fetchSpaceConnectorRules,
   forgetMemoryFact,
   listRecurringTasks,
   listSpaceAgents,
   listSpaceConnectors,
+  fetchSpaceConnectorRules,
+  type ConnectorRules,
   listSpaceFiles,
   listSpaceMemory,
   listSpaceSkills,
@@ -68,7 +69,6 @@ import {
   updateRecurringTask,
   type Agent,
   type AgentInput,
-  type ConnectorRules,
   type MemoryFact,
   type MySkill,
   type SkillInfo,
@@ -360,11 +360,13 @@ function SpaceConfig({
         id: s.name,
         name: s.name,
         description: s.description,
+        icon: <SkillIcon icon={s.icon} category={s.category} className="size-4" />,
       })),
       ...mySkills.map((sk) => ({
         id: sk.slug,
         name: sk.name,
         description: sk.description,
+        icon: <SkillIcon category={sk.category} className="size-4" />,
       })),
     ],
     [builtinSkills, mySkills],
@@ -715,7 +717,7 @@ function SpaceConfig({
                     key={sk.id}
                     className="group flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-sidebar-accent"
                   >
-                    <Wrench className="size-4 shrink-0 text-muted-foreground" />
+                    <SkillIcon category={sk.category} className="size-4" />
                     <button
                       type="button"
                       // Править можно только СВОИ навыки пространства: у
@@ -1338,6 +1340,62 @@ export function SpacesScreen({
     setJustCreatedId(created.id);
     setSelectedId(created.id);
   }, [refresh, sp.createDefaultName]);
+
+  // Пустое пространство, заведённое «вручную» и брошенное как есть, не
+  // сохраняется: при уходе с его настроек проверяем, что в нём ничего не
+  // тронуто (имя по умолчанию, ни описания, ни правил, ни агентов, ни
+  // навыков, ни коннекторов, ни задач, ни чатов), и удаляем. Иначе каждое
+  // нажатие «Создать» оставляло бы в списке ещё одно «Новое пространство».
+  const discardIfPristine = React.useCallback(
+    async (id: string) => {
+      try {
+        const [list, threads, agentIds, skills, connectors, tasks] = await Promise.all([
+          listSpaces(true),
+          listSpaceThreads(id),
+          listSpaceAgents(id),
+          listSpaceSkills(id),
+          listSpaceConnectors(id),
+          listSpaceTasks(id),
+        ]);
+        const space = list.find((x) => x.id === id);
+        if (!space) return;
+        const pristine =
+          space.name.trim() === sp.createDefaultName &&
+          !space.description.trim() &&
+          !space.instruction.trim() &&
+          threads.length === 0 &&
+          agentIds.length === 0 &&
+          skills.skills.length === 0 &&
+          skills.linked.length === 0 &&
+          connectors.length === 0 &&
+          tasks.length === 0;
+        if (!pristine) return;
+        await deleteSpace(id);
+        await refresh();
+        window.dispatchEvent(new Event("avy:spaces-changed"));
+      } catch {
+        // Не удалось проверить — оставляем как есть: лишнее пустое
+        // пространство безобиднее удалённого по ошибке.
+      }
+    },
+    [refresh, sp.createDefaultName],
+  );
+
+  // Срабатывает, когда с только что созданного пространства ушли: назад,
+  // на другое пространство или вовсе из раздела (размонтирование).
+  // Через ref: очистка эффекта должна звать СВЕЖУЮ проверку, а не ту, что
+  // была замкнута при входе в пространство.
+  const discardRef = React.useRef(discardIfPristine);
+  React.useEffect(() => {
+    discardRef.current = discardIfPristine;
+  }, [discardIfPristine]);
+  React.useEffect(() => {
+    const id = justCreatedId;
+    if (!id || selectedId !== id) return;
+    return () => {
+      void discardRef.current(id);
+    };
+  }, [justCreatedId, selectedId]);
 
   React.useEffect(() => {
     void listSpaces(true).then(setSpaces);

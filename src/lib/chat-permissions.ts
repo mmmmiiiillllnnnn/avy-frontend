@@ -5,7 +5,7 @@
 // Вынесено из chat-streams.ts, чтобы основной стор оставался чисто чатовым.
 // Этот модуль НЕ импортирует chatStreams напрямую (циклический импорт).
 // Вместо этого экспортирует функции, которые chat-streams.ts вызывает,
-// передавая необходимые зависимости (rec, setState, consume, streamChat, resumeBubble).
+// передавая необходимые зависимости (rec, setState, beginRun, runTurn, resumeBubble).
 
 import { streamChat, type ChatEvent } from "@/lib/api";
 import type { PendingPermission } from "@/lib/chat-streams";
@@ -44,10 +44,13 @@ export type StoreDeps = {
     pendingDecisions: PermissionDecision[];
   };
   setState: (threadId: string, patch: Record<string, unknown>) => void;
-  consume: (
+  /** Начать локальный цикл хода (пузырь, флаг стрима, владение записью). */
+  beginRun: (threadId: string, assistantId: string) => AbortController;
+  /** Прогнать ход целиком: кадры + завершение (общий путь с обычным чатом). */
+  runTurn: (
     threadId: string,
+    ctrl: AbortController,
     source: AsyncGenerator<ChatEvent>,
-    assistantId: string,
     cbs: RunCallbacks,
   ) => Promise<void>;
   /** Пузырь-приёмник продолжения: прежний, если он ещё в ленте, иначе новый. */
@@ -121,50 +124,33 @@ export async function resolvePermission(
   // же, пока он в ленте; после перечитывания истории — новый (resumeBubble).
   const decisions = r.pendingDecisions;
   r.pendingDecisions = [];
-  deps.setState(threadId, {
-    isStreaming: true,
-    error: null,
-    pendingPermissions: [],
-  });
+  deps.setState(threadId, { pendingPermissions: [] });
 
   const assistantId = deps.resumeBubble(threadId);
-
-  const ctrl = new AbortController();
-  r.ctrl = ctrl;
-  try {
-    await deps.consume(
-      threadId,
-      streamChat(
-        {
-          message: "",
-          threadId,
-          modelId: code.modelId,
-          effort: code.effort,
-          // Режим — ТОТ ЖЕ, что у прерванного хода. Раньше здесь стояло
-          // "avy-code" намертво: подтверждение бывало только у кодера. Теперь
-          // его запрашивает и обычный чат (`confirm:` у агента, инструменты
-          // коннекторов), а тред чата в чужом режиме сервер отклоняет (409).
-          mode: code.mode ?? null,
-          permissionMode: code.permissionMode,
-          // Агент — ТОТ ЖЕ, что вёл прерванный ход. Без него сервер собрал бы
-          // универсального ассистента, и подтверждённый вызов достался бы
-          // чужому набору инструментов: своих тул агента в нём нет.
-          agentId: code.agentId,
-          resume: decisions,
-        },
-        ctrl.signal,
-      ),
-      assistantId,
-      { onTitle: code.onTitle, onDone: code.onDone },
-    );
-  } catch (e) {
-    if ((e as Error).name !== "AbortError") {
-      deps.setState(threadId, { error: (e as Error).message });
-    } else {
-      return;
-    }
-  }
-  if (r.ctrl === ctrl) r.ctrl = null;
-  deps.setState(threadId, { isStreaming: false });
-  code.onDone?.(threadId);
+  const ctrl = deps.beginRun(threadId, assistantId);
+  await deps.runTurn(
+    threadId,
+    ctrl,
+    streamChat(
+      {
+        message: "",
+        threadId,
+        modelId: code.modelId,
+        effort: code.effort,
+        // Режим — ТОТ ЖЕ, что у прерванного хода. Раньше здесь стояло
+        // "avy-code" намертво: подтверждение бывало только у кодера. Теперь
+        // его запрашивает и обычный чат (`confirm:` у агента, инструменты
+        // коннекторов), а тред чата в чужом режиме сервер отклоняет (409).
+        mode: code.mode ?? null,
+        permissionMode: code.permissionMode,
+        // Агент — ТОТ ЖЕ, что вёл прерванный ход. Без него сервер собрал бы
+        // универсального ассистента, и подтверждённый вызов достался бы
+        // чужому набору инструментов: своих тул агента в нём нет.
+        agentId: code.agentId,
+        resume: decisions,
+      },
+      ctrl.signal,
+    ),
+    { onTitle: code.onTitle, onDone: code.onDone },
+  );
 }

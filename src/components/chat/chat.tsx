@@ -7,7 +7,6 @@ import { QuestionCard, type PendingQuestions } from "@/components/chat/question-
 import { ConnectorCard, type PendingConnector } from "@/components/chat/connector-card";
 import { PermissionCard } from "@/components/chat/permission-card";
 import type { PendingPermission } from "@/lib/chat-streams";
-import { foldParts } from "@/lib/chain-fold";
 import type { AskUserAnswer } from "@/lib/api";
 import { useAttachments, type UploadedAttachment } from "@/hooks/use-attachments";
 import {
@@ -81,6 +80,9 @@ function formatResetDate(iso: string, locale: string): string {
 type ChatProps = {
   messages: ChatMessage[];
   isStreaming: boolean;
+  /** id пузыря, в который идут кадры (см. ThreadState.streamingId). Не
+   *  передан — «работающим» считается последний ряд ленты. */
+  streamingId?: string | null;
   error: string | null;
   onSend: (text: string, uploaded: UploadedAttachment[]) => void | Promise<void>;
   /** Перегенерировать последний ответ агента (кнопка «Повторить»). */
@@ -141,6 +143,7 @@ type ChatProps = {
 export function Chat({
   messages,
   isStreaming,
+  streamingId,
   error,
   onSend,
   onRetry,
@@ -173,6 +176,16 @@ export function Chat({
   const t = useT();
   const { locale } = useLocale();
   const isEmpty = messages.length === 0;
+  // Ряд, который «работает» (индикатор, шиммер, панель действий скрыта), —
+  // пузырь-приёмник стрима ПО ID, а не последний ряд ленты. Реплика посреди
+  // хода встаёт после пузыря, и по позиции тот выглядел бы завершённым:
+  // лайки и «повторить» появлялись на ответе, который ещё дописывался.
+  // Без streamingId (старый вызывающий) — прежнее правило, последний ряд.
+  const runningIndex = !isStreaming
+    ? -1
+    : streamingId != null
+      ? messages.findIndex((m) => m.id === streamingId)
+      : messages.length - 1;
   // Агент ждёт ответа на карточку: она показана вместо поля ввода.
   //
   // Подтверждение и вопрос обрабатываются одинаково: в обоих случаях ход стоит
@@ -312,14 +325,14 @@ export function Chat({
               <OffscreenCull
                 key={m.id}
                 keepMounted={
-                  (isStreaming && idx === messages.length - 1) ||
+                  idx === runningIndex ||
                   idx === lastUserIndex ||
                   idx >= messages.length - 2
                 }
               >
                 <MessageRow
                   m={m}
-                  running={isStreaming && idx === messages.length - 1}
+                  running={idx === runningIndex}
                   isLastUser={idx === lastUserIndex}
                   threadId={threadId}
                   // Пробрасываем onRetry/onEdit по ПОЗИЦИИ (не по isStreaming),
@@ -732,10 +745,7 @@ function AssistantBubble({
   // мемоизацию MessageResponse (Streamdown перепарсивает весь markdown).
   const urlTransform = useMemo(() => makeFileUrlTransform(threadId), [threadId]);
 
-  // Одна цепочка работы на ход: промежуточный текст между тулами — заметкой
-  // внутрь, снаружи только финальный ответ (см. lib/chain-fold).
-  const rawParts = m.parts;
-  const parts = useMemo(() => foldParts(rawParts ?? []), [rawParts]);
+  const parts = m.parts ?? [];
   if (parts.length === 0) {
     // Ответ ещё не начался — индикатор печати.
     return running ? <TypingDots /> : null;

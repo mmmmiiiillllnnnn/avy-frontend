@@ -38,7 +38,8 @@ function makeDeps() {
       setState: (_t: string, patch: { pendingPermissions: PendingPermission[] }) => {
         state.pendingPermissions = patch.pendingPermissions;
       },
-      consume: async () => {},
+      beginRun: () => new AbortController(),
+      runTurn: async () => {},
       resumeBubble: () => "id",
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any,

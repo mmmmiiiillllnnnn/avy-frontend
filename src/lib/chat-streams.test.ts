@@ -34,7 +34,10 @@ vi.mock("@/lib/chat-permissions", () => ({
   resolvePermission: async () => {},
 }));
 
-import { chatStreams, liveMessages, subagentSteps, subagentText, type ChatMessage } from "@/lib/chat-streams";
+import {
+  chatStreams, historyBeforeLiveTurn, liveMessages, subagentSteps, subagentText, unsavedMessages,
+  type ChatMessage,
+} from "@/lib/chat-streams";
 
 const runningTask = (id: string, agentId: string): ChatMessage => ({
   id,
@@ -81,6 +84,47 @@ describe("liveMessages", () => {
     const out = liveMessages({ allMessages: [older, stale], state: { messages: [live] } });
     expect(out.map((m) => m.id).sort()).toEqual(["m0", "m1"]);
     expect(out.find((m) => m.id === "m1")).toBe(live);
+  });
+});
+
+describe("unsavedMessages — живой хвост, когда начало хода неизвестно", () => {
+  it("реплики этой сессии без серверного id не дублируются после истории", () => {
+    // dev 28.09: деплой перезапустил бэкенд посреди хода, лента переподключилась
+    // и перечитала историю — обе реплики треда всплыли дублями в конце.
+    const q1: ChatMessage = { id: "l1", role: "user", content: "Доступ к календарю у тебя есть?" };
+    const a1: ChatMessage = { id: "l2", role: "assistant", content: "Да", serverId: "s1" };
+    const q2: ChatMessage = { id: "l3", role: "user", content: "Проверь весь функционал" };
+    const bubble: ChatMessage = { id: "l4", role: "assistant", content: "Проверяю…", parts: [] };
+    const history: ChatMessage[] = [
+      { id: "h1", role: "user", content: "Доступ к календарю у тебя есть?" },
+      { id: "h2", role: "assistant", content: "Да", serverId: "s1" },
+      { id: "h3", role: "user", content: "Проверь весь функционал" },
+      { id: "h4", role: "assistant", content: "Проверяю…" },
+    ];
+    const tail = unsavedMessages([q1, a1, q2, bubble], history);
+    expect(tail.map((m) => m.id)).toEqual(["l4"]);
+    const merged = [...historyBeforeLiveTurn(history, tail), ...tail];
+    expect(merged.map((m) => m.content)).toEqual([
+      "Доступ к календарю у тебя есть?", "Да", "Проверь весь функционал", "Проверяю…",
+    ]);
+  });
+
+  it("новая реплика, которой в истории ещё нет, остаётся живой — и одинаковые не склеиваются", () => {
+    const history: ChatMessage[] = [{ id: "h1", role: "user", content: "ещё" }];
+    const live: ChatMessage[] = [
+      { id: "l1", role: "user", content: "ещё" },
+      { id: "l2", role: "user", content: "ещё" },
+      { id: "l3", role: "user", content: "в очереди", pending: true },
+    ];
+    expect(unsavedMessages(live, history).map((m) => m.id)).toEqual(["l2", "l3"]);
+  });
+
+  it("история с блоком вложений узнаётся по началу текста", () => {
+    const history: ChatMessage[] = [
+      { id: "h1", role: "user", content: "Посмотри файл\n\nПрикреплённые файлы:\n- /uploads/a.pdf" },
+    ];
+    const live: ChatMessage[] = [{ id: "l1", role: "user", content: "Посмотри файл" }];
+    expect(unsavedMessages(live, history)).toEqual([]);
   });
 });
 

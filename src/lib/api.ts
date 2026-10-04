@@ -1353,6 +1353,9 @@ export type SkillInfo = {
   description: string;
   /** Группа для списка («Documents», «Media»…). Пустая = «Прочее». */
   category: string;
+  /** Имя иконки lucide из frontmatter навыка. Бэкенд локальной версии поля не
+   *  отдаёт — тогда иконка подбирается по категории (SkillIcon). */
+  icon?: string;
   /** Подключён ли ассистенту (кнопка «Добавить/Убрать» в каталоге). */
   added: boolean;
 };
@@ -2233,7 +2236,7 @@ export function taskFileRawUrl(taskId: string, path: string): string {
 
 // ── Пространства ─────────────────────────────────────────────────────────────
 // Контейнер контекста: несколько чатов делят одно файловое облако
-// (см. docs/spaces-design.md). CRUD + чаты + файлы облака.
+// (см. docs/entities.md). CRUD + чаты + файлы облака.
 
 export type Space = {
   id: string;

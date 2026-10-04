@@ -507,10 +507,11 @@ export type Dictionary = {
     /** Заголовки групп в результатах общего поиска. */
     groupAgents: string;
     groupSkills: string;
-    /** Заголовки двух групп в каталоге навыков. */
+    /** Заголовки своих групп на вкладках; у встроенных заголовка нет. */
+    groupAgentsMine: string;
     groupSkillsMine: string;
-    groupSkillsBuiltin: string;
     groupConnectorsMine: string;
+    groupLibrary: string;
     groupConnectors: string;
     /** Форма своего навыка. */
     /** Заготовка разговора для пути «с помощью ассистента» у навыка. */
@@ -1255,9 +1256,10 @@ const ru: Dictionary = {
     skillEdit: "Редактировать",
     groupAgents: "Агенты",
     groupSkills: "Навыки",
+    groupAgentsMine: "Мои агенты",
     groupSkillsMine: "Мои навыки",
-    groupSkillsBuiltin: "Встроенные",
     groupConnectorsMine: "Мои коннекторы",
+    groupLibrary: "Библиотека",
     groupConnectors: "Коннекторы",
     skillAssistantOpener:
       "Хочу завести свой навык. Сейчас опишу работу, которую делаю регулярно, — надо, чтобы она всегда делалась одинаково.",
@@ -2017,9 +2019,10 @@ const en: Dictionary = {
     skillEdit: "Edit",
     groupAgents: "Agents",
     groupSkills: "Skills",
+    groupAgentsMine: "My agents",
     groupSkillsMine: "My skills",
-    groupSkillsBuiltin: "Built-in",
     groupConnectorsMine: "My connectors",
+    groupLibrary: "Library",
     groupConnectors: "Connectors",
     skillAssistantOpener:
       "I want a skill of my own. Let me describe the work I do regularly — I need it done the same way every time.",

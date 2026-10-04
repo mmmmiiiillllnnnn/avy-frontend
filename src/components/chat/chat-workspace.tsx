@@ -658,6 +658,7 @@ export function ChatWorkspace({
                 key={activeId}
                 messages={chat.messages}
                 isStreaming={chat.isStreaming}
+                streamingId={chat.streamingId}
                 error={chat.error}
                 onSend={sendBindingSpace}
                 onRetry={chat.retry}

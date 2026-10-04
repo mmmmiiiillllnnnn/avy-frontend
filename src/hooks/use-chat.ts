@@ -67,6 +67,9 @@ export function useChat(opts: UseChatOptions = {}) {
 
   const messages = state?.messages ?? EMPTY_MESSAGES;
   const isStreaming = state?.isStreaming ?? false;
+  // Пузырь, в который сейчас идут кадры: лента по нему решает, какой ряд
+  // «работает» (не по позиции — реплика посреди хода встаёт после него).
+  const streamingId = state?.streamingId ?? null;
   const error = state?.error ?? null;
   // Режим Avy Code: первая карточка из очереди (или null) + размер очереди.
   const pendingPermissions = state?.pendingPermissions ?? [];
@@ -354,6 +357,7 @@ export function useChat(opts: UseChatOptions = {}) {
   return {
     messages,
     isStreaming,
+    streamingId,
     error,
     send,
     retry,

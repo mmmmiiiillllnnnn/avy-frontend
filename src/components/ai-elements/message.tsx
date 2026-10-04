@@ -43,6 +43,9 @@ import {
 } from "react";
 import { Streamdown } from "streamdown";
 import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
+import type { PluggableList } from "unified";
+import { rehypeSameOriginImages, responseSanitizeSchema } from "@/lib/response-html";
 import { ChatImage } from "@/components/chat/chat-image";
 import { FileChip, isImageFileName } from "@/components/chat/file-chip";
 
@@ -367,12 +370,23 @@ const streamdownPlugins = { cjk, code, math, mermaid };
  * заглушка: harden срабатывает РАНЬШЕ, чем react-markdown зовёт urlTransform.
  *
  * Без harden ссылка доходит до `urlTransform` в исходном виде, и схему снимаем
- * там — в одном месте, вместо правки текста до парсинга. Опасные `javascript:`
- * при этом всё равно не пролезают: их блокирует сам React.
+ * там — в одном месте, вместо правки текста до парсинга.
  *
- * `rehype-raw` оставляем — на нём держится инлайновый HTML в ответах.
+ * Вместе с harden свой список выкидывал и `rehype-sanitize` — и с 30.09 по
+ * 01.10 инлайновый HTML из ответов шёл в DOM без фильтра (iframe, form,
+ * картинки с чужих хостов). Возвращаем очистку своей схемой (lib/response-html:
+ * дефолт GitHub + `file:` в ссылках + классы формул) и свой шаг для картинок
+ * вместо harden: чужие хосты становятся ссылками, не загрузками.
+ *
+ * `rehype-raw` оставляем — на нём держится инлайновый HTML в ответах. Порядок
+ * важен: raw → sanitize → картинки; KaTeX и Mermaid Streamdown дописывает
+ * ПОСЛЕ этого списка, их разметку очистка не трогает.
  */
-const streamdownRehypePlugins = [rehypeRaw];
+const streamdownRehypePlugins: PluggableList = [
+  rehypeRaw,
+  [rehypeSanitize, responseSanitizeSchema],
+  rehypeSameOriginImages,
+];
 
 // Плавное появление приходящих токенов. Своя «печатная машинка» тут не нужна и
 // была бы вредна: токены и так идут по одному живым потоком, а имитация набора
