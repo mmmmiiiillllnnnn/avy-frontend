@@ -22,6 +22,8 @@ import { CreateButton } from "@/components/agents/agents-screen";
 import { useConnectorItems, useConnectorList } from "@/components/agents/connector-items";
 import { ConnectorRulesDialog } from "@/components/agents/connector-rules-dialog";
 import { PickerField } from "@/components/ui/picker-field";
+import { SkillIcon } from "@/components/ui/skill-icon";
+import { type PickerItem } from "@/components/ui/library-picker-modal";
 import { Modal } from "@/components/ui/modal";
 import { SelectNative } from "@/components/ui/select-native";
 import { useAgents } from "@/hooks/use-agents";
@@ -34,6 +36,10 @@ import {
   listTaskSecrets,
   setTaskSecret,
   deleteTaskSecret,
+  fetchMySkills,
+  fetchSkillsCatalog,
+  type MySkill,
+  type SkillInfo,
   type RecurringTask,
   type TaskRun,
   type SecretMeta,
@@ -138,7 +144,7 @@ export function TaskForm({
       schedule: string;
       timezone: string;
       agent_id: string;
-      /** Прочие ключи сохраняются как были; форма правит только коннекторы. */
+      /** Прочие ключи сохраняются как были; форма правит только skills и connectors. */
       agent_config: Record<string, unknown>;
       error_policy: Record<string, unknown>;
     },
@@ -163,15 +169,18 @@ export function TaskForm({
   // работе агенты (те же, что в выборе над полем ввода).
   const [agentId, setAgentId] = React.useState(initial?.agent_id ?? "");
   const { agents: libraryAgents } = useAgents();
-  // Коннекторы прогона — явным списком id. Они ДОБАВЛЯЮТСЯ к набору самого
-  // агента (как у пространства), а не заменяют его: пусто значит «ничего
-  // сверх агента». Остальное из agent_config форма не трогает и при
-  // сохранении возвращает как было.
+  // Навыки и коннекторы прогона — явными списками id. Они ДОБАВЛЯЮТСЯ к
+  // набору самого агента (как у пространства), а не заменяют его: пусто
+  // значит «ничего сверх агента». Остальное из agent_config форма не трогает
+  // и при сохранении возвращает как было.
   const initialAgentConfig = (initial?.agent_config ?? {}) as Record<string, unknown>;
   const [connectors, setConnectors] = React.useState<string[]>(
     Array.isArray(initialAgentConfig.connectors)
       ? (initialAgentConfig.connectors as string[])
       : [],
+  );
+  const [skills, setSkills] = React.useState<string[]>(
+    Array.isArray(initialAgentConfig.skills) ? (initialAgentConfig.skills as string[]) : [],
   );
   const connectorList = useConnectorList();
   const connectorItems = useConnectorItems(connectorList);
@@ -181,6 +190,35 @@ export function TaskForm({
     (initialAgentConfig.connector_rules as ConnectorRules | undefined) ?? {},
   );
   const [rulesFor, setRulesFor] = React.useState<string | null>(null);
+  // Библиотека навыков — та же, что в форме агента: коробочные и свои. В
+  // `skills:` уходит СЛАГ своего навыка, а подпись — его имя. Свои первыми:
+  // их несколько против десятков коробочных.
+  const [builtinSkills, setBuiltinSkills] = React.useState<SkillInfo[] | null>(null);
+  const [mySkills, setMySkills] = React.useState<MySkill[] | null>(null);
+  React.useEffect(() => {
+    let alive = true;
+    fetchSkillsCatalog().then((list) => alive && setBuiltinSkills(list));
+    fetchMySkills().then((list) => alive && setMySkills(list));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const skillItems = React.useMemo<PickerItem[] | null>(
+    () =>
+      builtinSkills === null || mySkills === null
+        ? null
+        : [
+            ...mySkills.map((s) => ({
+              id: s.slug, name: s.name, description: s.description,
+              icon: <SkillIcon category={s.category} className="size-4" />,
+            })),
+            ...builtinSkills.map((s) => ({
+              id: s.name, name: s.name, description: s.description,
+              icon: <SkillIcon icon={s.icon} category={s.category} className="size-4" />,
+            })),
+          ],
+    [builtinSkills, mySkills],
+  );
   // Политика ошибок — свёрнутый блок «Дополнительно»: дефолты разумные, но
   // задача может быть чувствительной к повторам (напр. постинг в канал).
   const initialPolicy = (initial?.error_policy ?? {}) as Record<string, unknown>;
@@ -260,7 +298,7 @@ export function TaskForm({
                   timezone: tz,
                   agent_id: agentId,
                   agent_config: withConnectorRules(
-                    { ...initialAgentConfig, connectors },
+                    { ...initialAgentConfig, connectors, skills },
                     connectorRules,
                     connectors,
                   ),
@@ -391,8 +429,18 @@ export function TaskForm({
         </SelectNative>
       </div>
 
-      {/* Коннекторы — сразу под агентом: это ответ на тот же вопрос «чем
-          задача располагает». Выбранное карточками + «Добавить» в окно. */}
+      {/* Навыки и коннекторы — сразу под агентом: это ответ на тот же вопрос
+          «чем задача располагает». Оба поля — выбранное чипами + «Добавить»
+          в окно, как везде. */}
+      <PickerField
+        label={rt.skillsLabel}
+        hint={rt.skillsHint}
+        items={skillItems}
+        value={skills}
+        onChange={setSkills}
+        emptyText={t.spaces.emptyAttachableSkills}
+      />
+
       <PickerField
         label={rt.connectorsLabel}
         hint={rt.connectorsHint}

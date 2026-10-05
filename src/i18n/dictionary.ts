@@ -657,6 +657,8 @@ export type Dictionary = {
     agentLabel: string;
     agentDefault: string;
     /** Коннекторы прогона — ДОБАВЛЯЮТСЯ к набору агента, как у пространства. */
+    skillsLabel: string;
+    skillsHint: string;
     connectorsLabel: string;
     connectorsHint: string;
     instructionLabel: string;
@@ -1420,6 +1422,8 @@ const ru: Dictionary = {
     timezoneLabel: "Часовой пояс",
     agentLabel: "Агент",
     agentDefault: "Ассистент (по умолчанию)",
+    skillsLabel: "Навыки",
+    skillsHint: "Добавляются к навыкам агента на время прогона, а не заменяют их.",
     connectorsLabel: "Коннекторы",
     connectorsHint: "Добавляются к сервисам агента на время прогона, а не заменяют их.",
     instructionLabel: "Инструкции",
@@ -2178,6 +2182,8 @@ const en: Dictionary = {
     timezoneLabel: "Time zone",
     agentLabel: "Agent",
     agentDefault: "Assistant (default)",
+    skillsLabel: "Skills",
+    skillsHint: "Added to the agent's own skills for the run — they do not replace them.",
     connectorsLabel: "Connectors",
     connectorsHint: "Added to the agent's own services for the run — they do not replace them.",
     instructionLabel: "Instructions",
