@@ -7,6 +7,7 @@ import { QuestionCard, type PendingQuestions } from "@/components/chat/question-
 import { ConnectorCard, type PendingConnector } from "@/components/chat/connector-card";
 import { PermissionCard } from "@/components/chat/permission-card";
 import type { PendingPermission } from "@/lib/chat-streams";
+import { copyRich } from "@/lib/copy-rich";
 import type { AskUserAnswer } from "@/lib/api";
 import { useAttachments, type UploadedAttachment } from "@/hooks/use-attachments";
 import {
@@ -855,7 +856,7 @@ function MessageActions({
 
   const onCopy = async () => {
     try {
-      await navigator.clipboard.writeText(text);
+      await copyRich(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
