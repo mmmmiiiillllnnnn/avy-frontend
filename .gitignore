@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# CI (Jenkinsfile): учётка пуша и ссылка на образ в workspace
+/.docker-push/
+/image.env

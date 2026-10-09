@@ -23,3 +23,8 @@ dist/
 *.log
 .DS_Store
 npm-debug.log*
+
+# CI: пайплайн и то, что он оставляет в workspace, образу не нужны.
+Jenkinsfile
+.docker-push/
+image.env

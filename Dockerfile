@@ -9,11 +9,12 @@
 # НИЧЕГО про адрес бэка в бандл не впекается: один образ переносится между
 # средами без пересборки.
 #
-# Сборка из каталога web/:  docker build -t avy-chat-web web/
-# (в docker-compose собирается автоматически, build.context: ./web)
+# Сборка из корня репозитория:  docker build -t avy-chat-web .
+# (docker-compose репозитория avy-local собирает его сам: build.context —
+# соседний каталог ../avy-front, см. AVY_FRONT_DIR)
 #
 # Корпоративная сборка (Nexus вместо Docker Hub и registry.npmjs.org) — см.
-# deploy/jenkins/web.Jenkinsfile. Обе ручки необязательны, без них сборка
+# Jenkinsfile. Обе ручки необязательны, без них сборка
 # идёт как раньше:
 #   --build-arg NODE_IMAGE=nexus.corp:8082/library/node:20-slim
 #   --secret id=npmrc,src=/путь/.npmrc      (registry=..., //host/:_auth=...)

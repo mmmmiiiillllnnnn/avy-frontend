@@ -1,36 +1,55 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# avy-front
 
-## Getting Started
+Веб-интерфейс Avy Chat (Next.js 16, standalone). Бэкенд, песочница, Helm-чарт
+и docker-compose всего стека живут в соседнем репозитории
+[avy-local](../avy-local); ожидается, что оба лежат рядом:
 
-First, run the development server:
-
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```
+projects/
+  avy-local/    бэкенд, compose, deploy/helm, deploy/stand
+  avy-front/    этот репозиторий
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Браузер ходит только во фронт: запросы `/api/...` сервер Next проксирует на
+бэкенд по адресу из рантайм-переменной `BACKEND_ORIGIN` (по умолчанию
+`http://localhost:8000`). В бандл адрес не впекается — один образ годится для
+любой среды.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Разработка
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Нужен Node.js 20+. Бэкенд поднимается из avy-local (см. его README).
 
-## Learn More
+```bash
+npm install
+npm run dev          # http://localhost:3000
+```
 
-To learn more about Next.js, take a look at the following resources:
+Тесты и типы:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm test && npx tsc --noEmit
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Образ
 
-## Deploy on Vercel
+```bash
+docker build -t avy-chat-web .
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+В compose стека (avy-local) образ собирается сам из `../avy-front`; другой путь
+задаётся переменной `AVY_FRONT_DIR`.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Jenkins
+
+`Jenkinsfile` собирает образ в корпоративной среде — базовый образ и пакеты npm
+через Nexus, — проверяет, что контейнер отвечает, и пушит в реестр. Job:
+«Pipeline script from SCM», Script Path `Jenkinsfile`. Параметры и нужные
+credentials описаны в шапке файла.
+
+Готовый образ выкатывается чартом avy-local:
+
+```bash
+helm upgrade --install avy deploy/helm/avy \
+  --set images.web.repository=<REGISTRY>/avy/web \
+  --set images.web.tag=<tag>
+```
