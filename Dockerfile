@@ -16,7 +16,7 @@
 # Корпоративная сборка (Nexus вместо Docker Hub и registry.npmjs.org) — см.
 # Jenkinsfile. Обе ручки необязательны, без них сборка
 # идёт как раньше:
-#   --build-arg NODE_IMAGE=nexus.corp:8082/library/node:20-slim
+#   --build-arg NODE_IMAGE=nexus.corp:8082/library/node:20-alpine
 #   --secret id=npmrc,src=/путь/.npmrc      (registry=..., //host/:_auth=...)
 #   --secret id=ca,src=/путь/corp-ca.crt    (если Nexus за корпоративным CA)
 # .npmrc передаётся секретом BuildKit, а не COPY/ARG: так токен Nexus не
@@ -24,7 +24,10 @@
 # package-lock.json npm сам подменяет на настроенный registry
 # (replace-registry-host=npmjs по умолчанию), лок править не нужно.
 
-ARG NODE_IMAGE=node:20-slim
+# Alpine (musl): все нативные пакеты (swc, lightningcss, tailwind oxide, sharp)
+# есть в package-lock.json в musl-сборках, поэтому libc6-compat не ставим —
+# apk в сборке не вызывается и зеркало Alpine в Nexus не нужно.
+ARG NODE_IMAGE=node:20-alpine
 
 # ---- deps: ставим зависимости по lockfile (кэшируется, пока lockfile не менялся)
 FROM ${NODE_IMAGE} AS deps
@@ -55,9 +58,10 @@ ENV NODE_ENV=production \
     PORT=3000 \
     HOSTNAME=0.0.0.0
 
-# Непривилегированный пользователь (не root в контейнере).
-RUN addgroup --system --gid 1001 nodejs \
-    && adduser --system --uid 1001 nextjs
+# Непривилегированный пользователь (не root в контейнере). UID 1001 ждёт
+# Helm-чарт (podSecurityContext). Синтаксис busybox: длинных флагов нет.
+RUN addgroup -S -g 1001 nodejs \
+    && adduser -S -D -H -u 1001 -G nodejs nextjs
 
 # Standalone НЕ включает public/ и .next/static — копируем их отдельно, иначе
 # не будет статики (CSS/JS/иконок). Это load-bearing три COPY канонического

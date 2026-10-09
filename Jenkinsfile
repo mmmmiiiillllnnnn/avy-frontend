@@ -33,8 +33,8 @@ pipeline {
     parameters {
         string(name: 'AGENT_LABEL', defaultValue: 'docker',
                description: 'Метка агента с docker')
-        string(name: 'NODE_IMAGE', defaultValue: 'nexus.corp.local:8082/library/node:20-slim',
-               description: 'Базовый образ node:20-slim через docker-proxy Nexus')
+        string(name: 'NODE_IMAGE', defaultValue: 'nexus.corp.local:8082/library/node:20-alpine',
+               description: 'Базовый образ node:20-alpine через docker-proxy Nexus')
         string(name: 'NPM_REGISTRY', defaultValue: 'https://nexus.corp.local/repository/npm-group/',
                description: 'npm-репозиторий Nexus (group/proxy на registry.npmjs.org)')
         string(name: 'NPM_CREDENTIALS_ID', defaultValue: 'nexus-npm',
