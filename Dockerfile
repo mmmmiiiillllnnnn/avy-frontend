@@ -11,17 +11,33 @@
 #
 # Сборка из каталога web/:  docker build -t avy-chat-web web/
 # (в docker-compose собирается автоматически, build.context: ./web)
+#
+# Корпоративная сборка (Nexus вместо Docker Hub и registry.npmjs.org) — см.
+# deploy/jenkins/web.Jenkinsfile. Обе ручки необязательны, без них сборка
+# идёт как раньше:
+#   --build-arg NODE_IMAGE=nexus.corp:8082/library/node:20-slim
+#   --secret id=npmrc,src=/путь/.npmrc      (registry=..., //host/:_auth=...)
+#   --secret id=ca,src=/путь/corp-ca.crt    (если Nexus за корпоративным CA)
+# .npmrc передаётся секретом BuildKit, а не COPY/ARG: так токен Nexus не
+# оседает ни в слоях, ни в истории образа. Адреса registry.npmjs.org в
+# package-lock.json npm сам подменяет на настроенный registry
+# (replace-registry-host=npmjs по умолчанию), лок править не нужно.
+
+ARG NODE_IMAGE=node:20-slim
 
 # ---- deps: ставим зависимости по lockfile (кэшируется, пока lockfile не менялся)
-FROM node:20-slim AS deps
+FROM ${NODE_IMAGE} AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 # Повышенные таймаут/ретраи: сборка падала на транзиентных сетевых сбоях npm
 # registry. Делает npm ci устойчивее к коротким провалам сети.
-RUN npm ci --fetch-timeout=120000 --fetch-retries=5 --fetch-retry-maxtimeout=120000
+RUN --mount=type=secret,id=npmrc,target=/root/.npmrc \
+    --mount=type=secret,id=ca,target=/run/secrets/ca.crt \
+    if [ -s /run/secrets/ca.crt ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/ca.crt; fi; \
+    npm ci --fetch-timeout=120000 --fetch-retries=5 --fetch-retry-maxtimeout=120000
 
 # ---- builder: собираем standalone-бандл
-FROM node:20-slim AS builder
+FROM ${NODE_IMAGE} AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -31,7 +47,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
 # ---- runner: минимальный рантайм
-FROM node:20-slim AS runner
+FROM ${NODE_IMAGE} AS runner
 WORKDIR /app
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
