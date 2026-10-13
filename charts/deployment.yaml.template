@@ -1,0 +1,74 @@
+{{- $app := $.Values.app }}
+{{- $appCommon := $.Values.appCommon }}
+{{- $namespace := $.Values.namespace }}
+{{- $sidecars := $.Values.sidecars }}
+{{- $sidecarsCommon := $.Values.sidecarsCommon }}
+{{- $configs := $.Values.configs }}
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: {{ $app.name }}
+  namespace: {{ $namespace }}
+  labels:
+    app.kubernetes.io/name: {{ $app.name }}
+    helm.sh/chart: {{ $app.name }}
+    app.kubernetes.io/instance: {{ $app.name }}
+    app.kubernetes.io/managed-by: {{ $app.name }}
+spec:
+  replicas: {{ $app.replicas | default 1 }}
+  selector:
+    matchLabels:
+      app: {{ $app.name }}
+  strategy:
+    {{- if $app.strategy }}
+    {{ toYaml $app.strategy | nindent 4 }}
+    {{- else }}
+    {{ toYaml $appCommon.strategy | nindent 4 }}
+    {{- end }}
+  template:
+    metadata:
+      annotations:
+        {{- include "pod-annotations.template" (dict "sidecarsCommon" $sidecarsCommon "sidecars" $sidecars) | nindent 8 }}
+      labels:
+        app: {{ $app.name }}
+        version: __APP_VERSION__
+        {{- include "pod-labels.template" (dict "appCommon" $appCommon "app" $app) | nindent 8 }}
+    spec:
+      securityContext:
+        fsGroup: 1002640000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: {{ $app.name }}
+          image: {{ $app.docker_registry }}:__APP_VERSION__@__APP_DIGEST__
+          imagePullPolicy: Always
+          resources:
+            {{ toYaml $app.resources | nindent 12 }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1002640000
+            runAsGroup: 1002640000
+            allowPrivilegeEscalation: false
+            seccompProfile:
+              type: "RuntimeDefault"
+            capabilities:
+              drop:
+                - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+          ports:
+            - containerPort: {{ $app.http_port | default 3000 }}
+              name: porthttps
+              protocol: TCP
+          volumeMounts:
+            - name: tmp
+              mountPath: "/tmp"
+            - name: next-cache
+              mountPath: "/app/.next/cache"
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: next-cache
+          emptyDir: {}
